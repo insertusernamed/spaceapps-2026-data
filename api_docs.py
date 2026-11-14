@@ -25,7 +25,7 @@ Agricultural field outlines, field areas and environmental summaries for map-bas
 - Errors return JSON `{"detail": ...}` with a 4xx or 5xx status.
 - Every response has an `X-Request-Id` header. Send your own (up to 128 letters, digits or `._:-`)
   to trace a request, and quote it when reporting a problem.
-- Browsers may call the API from any `localhost` port; other origins must be allowed by the server's `CORS_ORIGINS` setting.
+- Cross-origin browser calls are off unless the server sets `CORS_ORIGINS`. Server-side callers and same-origin proxies are unaffected.
 - Missing or unavailable values are `null`, never zero.
 
 ### What the data is

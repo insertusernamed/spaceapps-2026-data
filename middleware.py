@@ -1,4 +1,4 @@
-"""Cross-origin access for browser front ends, and a request ID on every response."""
+"""Opt-in cross-origin access for browser front ends, and a request ID on every response."""
 from __future__ import annotations
 
 import logging
@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 REQUEST_ID_HEADER = "X-Request-Id"
-# Any port on this machine, so local front ends work without configuration.
+# Matched when CORS_ORIGINS includes the word "localhost": any port on this machine.
 LOCAL_ORIGINS = r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?"
 _SAFE_ID = re.compile(r"[A-Za-z0-9._:-]{1,128}")
 
@@ -20,7 +20,7 @@ log = logging.getLogger("uvicorn.error.requests")
 
 
 def cors_origins(value: str | None) -> list[str]:
-    """Parse CORS_ORIGINS: comma-separated origins, or * for any origin."""
+    """Parse CORS_ORIGINS: comma-separated origins, "localhost" for any local port, or * for any origin."""
     return [origin.strip().rstrip("/") for origin in (value or "").split(",") if origin.strip()]
 
 
@@ -58,13 +58,17 @@ class RequestIdMiddleware:
 
 
 def install(app: FastAPI) -> None:
-    origins = cors_origins(os.environ.get("CORS_ORIGINS"))
     app.add_middleware(RequestIdMiddleware)
+    origins = cors_origins(os.environ.get("CORS_ORIGINS"))
+    if not origins:
+        return  # CORS is off: browsers on other origins are refused, same-origin and server calls work.
+    local = "localhost" in origins
+    origins = [o for o in origins if o != "localhost"]
     # Added last so it runs first and answers preflight requests itself.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_origin_regex=None if "*" in origins else LOCAL_ORIGINS,
+        allow_origin_regex=LOCAL_ORIGINS if local and "*" not in origins else None,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type", REQUEST_ID_HEADER],
         expose_headers=[REQUEST_ID_HEADER],

@@ -81,9 +81,11 @@ registry. IDs refer to one source edition/year and should not be matched across 
 
 ### Browser access and request IDs
 
-Browsers may call the API from any `localhost` or `127.0.0.1` port. To allow a
-deployed front end, set `CORS_ORIGINS` to a comma-separated list of origins, for
-example `CORS_ORIGINS=https://app.example.org`; `*` allows any origin.
+CORS is off by default: browsers on other origins cannot call the API directly,
+so front ends call it through a same-origin proxy (as the Vite dev server does).
+To enable it, set `CORS_ORIGINS` to a comma-separated list of origins, for example
+`CORS_ORIGINS=https://app.example.org,localhost`. The word `localhost` allows any
+`localhost`/`127.0.0.1` port, and `*` allows any origin.
 
 Every response carries an `X-Request-Id` header. A caller may send its own ID
 (up to 128 letters, digits or `._:-`); otherwise one is generated. Each request

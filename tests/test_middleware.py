@@ -54,8 +54,23 @@ class TestCors(unittest.TestCase):
     def tearDown(self):
         client_with()  # restore the default app for other tests
 
-    def test_any_localhost_port_by_default(self):
+    def test_off_by_default(self):
         client = client_with()
+        for origin in ["http://localhost:5173", "https://example.com"]:
+            with self.subTest(origin=origin):
+                resp = client.get("/health", headers={"Origin": origin})
+                self.assertEqual(resp.status_code, 200)
+                self.assertNotIn("access-control-allow-origin", resp.headers)
+                self.assertIn("x-request-id", resp.headers)
+        preflight = client.options("/field-summary", headers={"Origin": "http://localhost:5173", **PREFLIGHT})
+        self.assertNotIn("access-control-allow-origin", preflight.headers)
+
+    def test_empty_setting_stays_off(self):
+        resp = client_with(" , ").get("/health", headers={"Origin": "http://localhost:5173"})
+        self.assertNotIn("access-control-allow-origin", resp.headers)
+
+    def test_localhost_keyword_allows_any_local_port(self):
+        client = client_with("localhost")
         for origin in ["http://localhost:5173", "http://127.0.0.1:3000", "http://localhost"]:
             with self.subTest(origin=origin):
                 resp = client.options("/field-summary", headers={"Origin": origin, **PREFLIGHT})
@@ -63,22 +78,19 @@ class TestCors(unittest.TestCase):
                 self.assertEqual(resp.headers["access-control-allow-origin"], origin)
         resp = client.get("/health", headers={"Origin": "http://localhost:5173"})
         self.assertIn("x-request-id", resp.headers["access-control-expose-headers"].lower())
-
-    def test_other_origins_are_refused_by_default(self):
-        client = client_with()
         for origin in ["https://example.com", "http://localhost.evil.com", "http://evil.com/http://localhost"]:
             with self.subTest(origin=origin):
-                resp = client.get("/health", headers={"Origin": origin})
-                self.assertNotIn("access-control-allow-origin", resp.headers)
+                self.assertNotIn("access-control-allow-origin", client.get("/health", headers={"Origin": origin}).headers)
 
-    def test_configured_origins_are_added(self):
+    def test_listed_origins_only(self):
         client = client_with("https://app.example.org/, https://other.example.org")
-        for origin in ["https://app.example.org", "https://other.example.org", "http://localhost:5173"]:
+        for origin in ["https://app.example.org", "https://other.example.org"]:
             with self.subTest(origin=origin):
                 resp = client.get("/health", headers={"Origin": origin})
                 self.assertEqual(resp.headers["access-control-allow-origin"], origin)
-        resp = client.get("/health", headers={"Origin": "https://example.com"})
-        self.assertNotIn("access-control-allow-origin", resp.headers)
+        for origin in ["https://example.com", "http://localhost:5173"]:
+            with self.subTest(origin=origin):
+                self.assertNotIn("access-control-allow-origin", client.get("/health", headers={"Origin": origin}).headers)
 
     def test_wildcard_allows_any_origin(self):
         resp = client_with("*").get("/health", headers={"Origin": "https://anything.example"})
