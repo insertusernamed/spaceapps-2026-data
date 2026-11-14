@@ -24,6 +24,26 @@ python app.py fetch --lat 34.05 --lon -118.24 --start 20240101 --end 20240107
 `fetch` prints the raw POWER JSON. Edit `fetch_daily_point` in `app.py` to add
 parameters or switch to the monthly/climatology endpoints.
 
+## Docker
+
+```sh
+docker build -t spaceapps-data .
+docker run --rm -p 8091:8091 spaceapps-data
+```
+
+Swagger UI is at <http://localhost:8091/docs>. Without a database the image serves
+the committed Orillia preview. To serve an indexed build, mount the directory that
+holds it (so SQLite WAL/SHM files are shared) and set `FIELDS_DB`:
+
+```sh
+docker run --rm -p 8091:8091 -v "$PWD/data:/var/lib/spaceapps-fields" \
+  -e FIELDS_DB=/var/lib/spaceapps-fields/fields.sqlite spaceapps-data
+```
+
+The container runs as UID/GID 1000; the mounted directory must be writable by it.
+Credentials are never built into the image; mount `.env` at `/app/.env` for
+`/daily-point`.
+
 ## Tests
 
 ```sh
