@@ -17,6 +17,7 @@ import math
 import threading
 import time
 from datetime import datetime, timezone
+from functools import lru_cache
 
 import requests
 
@@ -193,10 +194,16 @@ def provenance(lat: float, lon: float) -> dict:
     }
 
 
+@lru_cache(maxsize=512)
+def _elevations(points: tuple[tuple[float, float], ...]) -> tuple[float | None, ...]:
+    """Elevations for a sample grid. SRTM does not change, so repeat clicks skip the rate-limited service."""
+    return tuple(_fetch(list(points), timeout=30))
+
+
 def fetch_terrain(lat: float, lon: float, polygon) -> dict:
     """Sample elevation inside the outline and return summary statistics."""
     lats, lons = _grid_axes(polygon, lat, lon)
-    values = _fetch([(a, b) for a in lats for b in lons], timeout=30)
+    values = list(_elevations(tuple((a, b) for a in lats for b in lons)))
     if len(values) != len(lats) * len(lons):
         raise ProviderError("elevation service returned the wrong number of points")
     if any(

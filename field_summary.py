@@ -5,15 +5,16 @@ from __future__ import annotations
 import math
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from typing import Any
+from functools import lru_cache
+from typing import Any, Literal
 
 import pandas as pd
 import requests
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app import POWER_URL
-from environmental import geometry, indicators, terrain
-from environmental.errors import DataError, ProviderError
+from environmental import daymet, geometry, indicators, terrain
+from environmental.errors import DataError, ProviderError, ValidationError
 
 
 class Period(BaseModel):
@@ -85,6 +86,13 @@ class FieldSummaryRequest(BaseModel):
     )
     period: Period = Field(default_factory=Period)
     season: Season | None = None
+    weatherSource: Literal["auto", "daymet", "power"] = Field(
+        default="auto",
+        description=(
+            "auto uses NASA Daymet (1 km) inside North America when the period ends by the last complete year, "
+            "otherwise NASA POWER (about 50 km). daymet or power forces one source."
+        ),
+    )
     weatherGridDeg: float = Field(
         default=0.05,
         ge=0,
@@ -148,27 +156,54 @@ def fetch_weather(lat: float, lon: float, start: str, end: str) -> pd.DataFrame:
         ) from exc
 
 
+def _snap(lat: float, lon: float, grid: float) -> tuple[float, float]:
+    if grid == 0:
+        return lat, lon
+    lat, lon = (math.floor(lat / grid) + 0.5) * grid, (math.floor(lon / grid) + 0.5) * grid
+    return max(-90, min(90, lat)), max(-180, min(180, lon))
+
+
+@lru_cache(maxsize=256)
+def _power(lat: float, lon: float, start: str, end: str) -> pd.DataFrame:
+    return fetch_weather(lat, lon, start, end)
+
+
+def _weather(request: FieldSummaryRequest, lat: float, lon: float, start: str, end: str):
+    """(frame, source, sample lat, sample lon, grid, layer status) for the requested weather source."""
+    choice = request.weatherSource
+    daymet_ok = daymet.covers(lat, lon) and request.period.end.year <= daymet.last_published_year()
+    if choice == "daymet" and not daymet_ok:
+        raise ValidationError(
+            "Daymet covers North America up to the last complete year; use weatherSource auto or power", "weatherSource")
+    fallback = None
+    if choice in ("auto", "daymet") and daymet_ok:
+        grid = daymet.GRID_DEG if request.weatherGridDeg else 0
+        wlat, wlon = _snap(lat, lon, grid)
+        try:
+            return daymet.fetch_daily(wlat, wlon, start, end), "daymet", wlat, wlon, grid, {"status": "ok", "source": "daymet"}
+        except ProviderError as exc:
+            if choice == "daymet":
+                raise
+            fallback = str(exc)
+    grid = request.weatherGridDeg
+    wlat, wlon = _snap(lat, lon, grid)
+    status = {"status": "ok", "source": "power"}
+    if fallback:
+        status.update(fallbackFrom="daymet", message=fallback)
+    return _power(round(wlat, 6), round(wlon, 6), start, end).copy(), "power", wlat, wlon, grid, status
+
+
 def summarize_field(request: FieldSummaryRequest) -> dict:
     lon, lat = geometry.centroid(request.polygon)
-    grid = request.weatherGridDeg
-    wlat, wlon = (
-        (lat, lon)
-        if grid == 0
-        else (
-            (math.floor(lat / grid) + 0.5) * grid,
-            (math.floor(lon / grid) + 0.5) * grid,
-        )
-    )
-    wlat, wlon = max(-90, min(90, wlat)), max(-180, min(180, wlon))
     start, end = (
         request.period.start.strftime("%Y%m%d"),
         request.period.end.strftime("%Y%m%d"),
     )
     with ThreadPoolExecutor(max_workers=2) as pool:
-        weather = pool.submit(fetch_weather, wlat, wlon, start, end)
         land = pool.submit(terrain.fetch_terrain, lat, lon, request.polygon)
+        frame, source, wlat, wlon, grid, weather_status = _weather(request, lat, lon, start, end)
         _, summary = indicators.summarize(
-            weather.result(),
+            frame,
             wlat,
             tuple(request.season.months) if request.season else None,
         )
@@ -178,11 +213,21 @@ def summarize_field(request: FieldSummaryRequest) -> dict:
         except DataError as exc:
             terrain_block = None
             terrain_status = {"status": "error", "message": str(exc)}
+    weather_source = daymet.provenance(wlat, wlon, start, end) if source == "daymet" else {
+        "source": "NASA POWER",
+        "url": POWER_URL,
+        "variables": list(VARIABLES),
+        "spatial_resolution_km": 50,
+        "temporal_resolution": "daily",
+        "period": f"{start}-{end}",
+        "location": {"lat": round(wlat, 6), "lon": round(wlon, 6)},
+    }
     return {
         "field": {
             "centroid": {"lat": round(lat, 6), "lon": round(lon, 6)},
             "areaHa": round(geometry.area_ha(request.polygon), 2),
         },
+        "weatherSource": source,
         "weatherCell": {"lat": round(wlat, 6), "lon": round(wlon, 6), "gridDeg": grid},
         "period": {"start": start, "end": end},
         **{
@@ -190,17 +235,9 @@ def summarize_field(request: FieldSummaryRequest) -> dict:
             for key in ("season", "climate", "water", "frost", "monthly", "coverage")
         },
         "terrain": terrain_block,
-        "layers": {"weather": {"status": "ok"}, "terrain": terrain_status},
+        "layers": {"weather": weather_status, "terrain": terrain_status},
         "source": [
-            {
-                "source": "NASA POWER",
-                "url": POWER_URL,
-                "variables": list(VARIABLES),
-                "spatial_resolution_km": 50,
-                "temporal_resolution": "daily",
-                "period": f"{start}-{end}",
-                "location": {"lat": round(wlat, 6), "lon": round(wlon, 6)},
-            },
+            weather_source,
             {
                 "source": "Hargreaves ET0 (FAO-56)",
                 "note": "Reference evapotranspiration derived from temperature and solar geometry; not measured crop water use.",

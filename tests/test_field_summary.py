@@ -5,8 +5,9 @@ import pandas as pd
 import requests
 from fastapi.testclient import TestClient
 
+import field_summary
 import server
-from environmental import indicators
+from environmental import daymet, indicators, terrain
 
 POLYGON = {
     "type": "Polygon",
@@ -20,7 +21,8 @@ POLYGON = {
         ]
     ],
 }
-PAYLOAD = {"polygon": POLYGON, "period": {"start": "20230101", "end": "20231231"}}
+# These tests cover the NASA POWER path; Daymet has its own tests in test_daymet.py.
+PAYLOAD = {"polygon": POLYGON, "period": {"start": "20230101", "end": "20231231"}, "weatherSource": "power"}
 
 
 def daily_response():
@@ -51,6 +53,9 @@ class TestFieldSummary(unittest.TestCase):
             "results": [{"elevation": 200} for _ in range(100)]
         }
         self.addCleanup(patch.stopall)
+        field_summary._power.cache_clear()
+        daymet._fetch.cache_clear()
+        terrain._elevations.cache_clear()
 
     def test_full_summary_from_provider_responses(self):
         response = self.client.post("/field-summary", json=PAYLOAD)

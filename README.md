@@ -172,12 +172,21 @@ YYYYMMDD; they must be ordered, within 1981 through today, and span at most
 45 years. Custom season months must be consecutive and can cross December.
 Unknown request properties and invalid polygons/dates return 422.
 
-NASA POWER provides daily temperature and precipitation on a coarse grid
-(approximately 50 km). `weatherGridDeg` chooses a sampling coordinate on a
-0.05-degree grid by default; zero uses the outline's centre. It does **not**
-provide weather at that finer resolution. Temperature-based Hargreaves ET0
+Weather comes from NASA Daymet (1 km, North America, 1980 to the last complete
+year) or NASA POWER (about 50 km, global, up to today). `weatherSource` is `auto`
+by default, which picks Daymet when it covers the field and period and otherwise
+POWER; `daymet` or `power` forces one (forcing Daymet where it cannot apply
+returns 422). If Daymet fails under `auto`, POWER is used and
+`layers.weather.fallbackFrom` says so. Daymet samples the field's ~1 km cell.
+For POWER, `weatherGridDeg` chooses a sampling coordinate on a 0.05-degree grid
+by default; zero uses the outline's centre. It does **not** provide weather at
+that finer resolution. Weather and elevation downloads are cached in memory, so
+repeat requests for a field are fast. Temperature-based Hargreaves ET0
 (FAO-56) estimates reference evapotranspiration, not actual crop water use.
-Growing-degree days use a 10 C base. A year/season needs at least 90% valid
+Growing-degree days use a 10 C base. `chu_available_median` gives Ontario crop
+heat units (the corn and soybean variety rating scale), counted each year from
+three days averaging at least 12.8 C (no earlier than May 1) to the first -2 C
+fall frost; it reflects the requested years. A year/season needs at least 90% valid
 observations to contribute to its statistic; unavailable statistics are `null`.
 Full calendar years are recommended for annual summaries. Monthly values are
 climatological averages over the requested years, not a dated time series.

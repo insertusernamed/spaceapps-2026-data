@@ -54,7 +54,7 @@ def validate_season(months) -> tuple[int, ...]:
         raise ValidationError(
             "season months must be distinct integers 1-12", "season.months"
         )
-    for a, b in zip(months, months[1:]):
+    for a, b in zip(months, months[1:], strict=False):
         if b != a % 12 + 1:
             raise ValidationError(
                 "season months must be consecutive in growing order, e.g. [11, 12, 1, 2, 3]",
@@ -97,6 +97,47 @@ def growing_degree_days(df: pd.DataFrame, base_temp: float = BASE_TEMP_C) -> pd.
     """Daily GDD = max(0, (Tmax+Tmin)/2 - base)."""
     gdd = (((df["tmax_c"] + df["tmin_c"]) / 2) - base_temp).clip(lower=0)
     return gdd.rename("gdd")
+
+
+def crop_heat_units(df: pd.DataFrame) -> pd.Series:
+    """Daily Ontario crop heat units (CHU), the AAFC/OMAFRA equation used to rate corn and soybean varieties.
+
+    Day = 3.33(Tmax-10) - 0.084(Tmax-10)^2, night = 1.8(Tmin-4.4); each is floored at zero and the two are averaged.
+    """
+    day = (df["tmax_c"].clip(lower=10) - 10)
+    daytime = (3.33 * day - 0.084 * day**2).clip(lower=0)
+    nighttime = (1.8 * (df["tmin_c"] - 4.4)).clip(lower=0)
+    return ((daytime + nighttime) / 2).rename("chu")
+
+
+CHU_START_MEAN_C = 12.8
+CHU_KILLING_FROST_C = -2.0
+
+
+def available_chu(year: pd.DataFrame, min_coverage: float = MIN_COVERAGE) -> float:
+    """Ontario available crop heat units for one calendar year (northern hemisphere).
+
+    Accumulation starts after the first run of three days with mean temperature at least
+    12.8 C, no earlier than May 1 (the seed-rating convention), and stops at the first fall
+    frost of -2 C or colder (from August on), as in OMAFRA's CHU maps. NaN when the window
+    is incomplete or less than `min_coverage` of its days have temperatures.
+    """
+    t = year[["tmax_c", "tmin_c"]]
+    mean = (t["tmax_c"] + t["tmin_c"]) / 2
+    warm = (mean >= CHU_START_MEAN_C) & (year.index.month >= 5)
+    run = warm.astype(int).groupby((~warm).cumsum()).cumsum()
+    started = run[run >= 3]
+    if started.empty:
+        return float("nan")
+    start = started.index[0] + pd.Timedelta(days=1)
+    frost = year.index[(t["tmin_c"] <= CHU_KILLING_FROST_C) & (year.index > start) & (year.index.month >= 8)]
+    if frost.empty:
+        return float("nan")
+    window = year.loc[start:frost[0] - pd.Timedelta(days=1)]
+    valid = window["tmax_c"].notna() & window["tmin_c"].notna()
+    if window.empty or valid.mean() < min_coverage:
+        return float("nan")
+    return float(crop_heat_units(window[valid]).sum() / valid.mean())
 
 
 def longest_run(mask: np.ndarray) -> int:
@@ -268,6 +309,10 @@ def _yearly(
         }
     )
     out = out.join(season_tbl, how="outer")
+    if lat >= 0:
+        out["chu_available"] = d.groupby(d.index.year).apply(lambda y: available_chu(y, min_coverage))
+    else:
+        out["chu_available"] = np.nan
     out["water_deficit_mm"] = (out["season_et0_mm"] - out["season_precip_mm"]).clip(
         lower=0
     )
@@ -315,6 +360,7 @@ YEAR_FIELDS = (
     "water_stress_index",
     "gdd_annual",
     "gdd_season",
+    "chu_available",
     "heat_days_30",
     "dry_spell_days",
     "precip_mm",
@@ -474,6 +520,7 @@ def summarize(
     climate = {
         "gdd_annual_median": _median(yearly["gdd_annual"]),
         "gdd_season_median": _median(yearly["gdd_season"]),
+        "chu_available_median": _median(yearly["chu_available"]),
         "growing_season_precip_mm_median": _median(yearly["season_precip_mm"]),
         "annual_precip_mm_median": _median(yearly["precip_mm"]),
         "median_dry_spell_days": _median(yearly["dry_spell_days"]),
