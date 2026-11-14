@@ -73,7 +73,7 @@ class TestBackgroundFields(unittest.TestCase):
                 )
             source = root / "source.parquet"
             con = duckdb.connect()
-            con.execute("LOAD spatial")
+            con.execute("INSTALL spatial; LOAD spatial")
             con.execute(
                 "CREATE TABLE source(id VARCHAR,score INTEGER,geometry GEOMETRY)"
             )
