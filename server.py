@@ -17,8 +17,8 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import CropHistoryRequest, FieldCropHistoryBatchRequest, GreennessRequest
-from environmental import crops, greenness
+from crop_history import CropHistoryRequest, FieldBatchRequest, GreennessRequest, SoilRequest
+from environmental import crops, greenness, soil
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -207,21 +207,24 @@ def _field_geometries(field_ids: list[str]) -> dict[str, dict]:
     return {fid: feature["geometry"] for fid, feature in found.items()}
 
 
-@app.post("/fields/crop-history", tags=["Crops"], **docs.CROP_HISTORY_BATCH)
-def fields_crop_history(request: FieldCropHistoryBatchRequest) -> dict:
-    polygons = _field_geometries(request.ids)
-    histories = crops.history_many(polygons)
+def _batch_response(ids: list[str], outcomes: dict, payload_key: str) -> dict:
+    """One result per requested ID, in order: ok with its payload, or error (404 unknown field, provider status)."""
     results = []
-    for fid in request.ids:
-        outcome = histories.get(fid)
+    for fid in ids:
+        outcome = outcomes.get(fid)
         if outcome is None:
             results.append({"id": fid, "status": "error", "error": {"code": 404, "detail": "Field not found"}})
         elif isinstance(outcome, DataError):
             results.append({"id": fid, "status": "error", "error": {"code": outcome.status, "detail": str(outcome)}})
         else:
-            results.append({"id": fid, "status": "ok", "history": outcome})
+            results.append({"id": fid, "status": "ok", payload_key: outcome})
     succeeded = sum(r["status"] == "ok" for r in results)
     return {"results": results, "requested": len(results), "succeeded": succeeded, "failed": len(results) - succeeded}
+
+
+@app.post("/fields/crop-history", tags=["Crops"], **docs.CROP_HISTORY_BATCH)
+def fields_crop_history(request: FieldBatchRequest) -> dict:
+    return _batch_response(request.ids, crops.history_many(_field_geometries(request.ids)), "history")
 
 
 @app.get("/fields/{field_id}/crop-history", tags=["Crops"], **docs.CROP_HISTORY_FIELD)
@@ -258,3 +261,28 @@ def field_greenness(
 @app.post("/greenness", tags=["Crops"], **docs.GREENNESS)
 def outline_greenness(request: GreennessRequest) -> dict:
     return _greenness(request.polygon, request.year)
+
+
+def _soil(polygon) -> dict:
+    try:
+        return soil.field_soil(polygon)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.post("/fields/soil", tags=["Soil"], **docs.SOIL_BATCH)
+def fields_soil(request: FieldBatchRequest) -> dict:
+    return _batch_response(request.ids, soil.soil_many(_field_geometries(request.ids)), "soil")
+
+
+@app.get("/fields/{field_id}/soil", tags=["Soil"], **docs.SOIL_FIELD)
+def field_soil(field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID))) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_soil(polygon)}
+
+
+@app.post("/soil", tags=["Soil"], **docs.SOIL)
+def outline_soil(request: SoilRequest) -> dict:
+    return _soil(request.polygon)

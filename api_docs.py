@@ -39,6 +39,7 @@ from national crop maps via the crop history routes.
 TAGS = [
     {"name": "Fields", "description": "Predicted agricultural field outlines and their estimated areas."},
     {"name": "Crops", "description": "What was planted in a field each year, from Canadian and US 30 m crop inventory maps."},
+    {"name": "Soil", "description": "Topsoil texture, pH, organic matter and water holding for fields, from SoilGrids."},
     {"name": "Environment", "description": "Climate, water balance, frost and terrain summaries from NASA data."},
     {"name": "Service", "description": "Liveness and readiness probes for monitoring and deployment."},
 ]
@@ -371,5 +372,70 @@ GREENNESS = {
         200: ok("Clear-sky NDVI observations and a season summary (example trimmed to two overpasses).", _GREENNESS_EXAMPLE),
         422: {"description": "Invalid polygon, year outside 2017 to this year, or unknown request property."},
         502: GREENNESS_PROVIDER_ERROR,
+    },
+}
+
+SOIL_TEXT = (
+    "Topsoil estimates from ISRIC SoilGrids 2.0 at 250 m, averaged over every cell the field touches. These are "
+    "machine-learning estimates, not a soil test; a farmer's own soil test should take precedence.\n\n"
+    "- `topsoil`: the thickness-weighted 0–30 cm mean of pH (water), clay, sand and silt (%), organic carbon and "
+    "total nitrogen (g/kg), bulk density (g/cm³) and cation exchange capacity (cmol(+)/kg).\n"
+    "- `derived`: `textureClass` (USDA texture triangle), `organicMatterPct` (organic carbon × 1.724), `phClass` "
+    "(USDA soil reaction class) and `availableWaterMm`, the plant-available water the top 30 cm can hold "
+    "(field capacity minus wilting point, Saxton & Rawls 2006).\n"
+    "- `depths`: the same properties for 0–5, 5–15 and 15–30 cm.\n\n"
+    "Values are `null` over water, ice or built-up land. Cells are 250 m, so small fields share values with their "
+    "surroundings. The first request for a field takes about 2 seconds; repeats return at once."
+)
+
+_SOIL_EXAMPLE = {
+    "topsoil": {"ph": 6.82, "clayPct": 16.45, "sandPct": 52.31, "siltPct": 31.24, "organicCarbonGPerKg": 28.7,
+                "nitrogenGPerKg": 2.76, "bulkDensityGPerCm3": 1.48, "cecCmolPerKg": 17.05},
+    "derived": {"textureClass": "Sandy loam", "organicMatterPct": 4.9, "phClass": "Neutral", "availableWaterMm": 40},
+    "depths": {"0-5cm": {"ph": 6.75, "clayPct": 15.4}, "5-15cm": {"ph": 6.8, "clayPct": 15.32}, "15-30cm": {"ph": 6.85, "clayPct": 17.6}},
+    "units": {"ph": "pH", "clayPct": "%", "sandPct": "%", "siltPct": "%", "organicCarbonGPerKg": "g/kg", "nitrogenGPerKg": "g/kg",
+              "bulkDensityGPerCm3": "g/cm3", "cecCmolPerKg": "cmol(+)/kg", "availableWaterMm": "mm in 0-30 cm"},
+    "source": {"name": "ISRIC SoilGrids 2.0", "url": "https://soilgrids.org", "resolutionM": 250, "license": "CC BY 4.0"},
+    "note": "Machine-learning estimates for 250 m cells, averaged over the cells the field touches; not a soil test.",
+}
+
+SOIL_PROVIDER_ERROR = error("SoilGrids could not be reached or read.", "SoilGrids is unavailable")
+
+SOIL_FIELD = {
+    "summary": "Topsoil of a field",
+    "description": "Topsoil properties for a field from `/fields`.\n\n" + SOIL_TEXT,
+    "responses": {
+        200: ok("Topsoil estimates for the field (depths trimmed in this example).", {"id": EXAMPLE_FIELD_ID, **_SOIL_EXAMPLE}),
+        404: error("No field has this ID in the loaded data.", "Field not found"),
+        502: SOIL_PROVIDER_ERROR,
+        503: FIELDS_UNAVAILABLE,
+    },
+}
+
+SOIL_BATCH = {
+    "summary": "Topsoil of several fields",
+    "description": (
+        "Topsoil for up to 100 fields from `/fields` in one request, for example a map selection. `results` follows the "
+        "order of `ids`, with duplicates answered once. Each entry has `status` `ok` with `soil` in the same shape as "
+        "`GET /fields/{field_id}/soil`, or `error` with a `code` (404 unknown field, 502 SoilGrids failure) and `detail`; "
+        "one failed field never fails the others.\n\n" + SOIL_TEXT
+    ),
+    "responses": {
+        200: ok("One result per requested field.", {
+            "results": [{"id": EXAMPLE_FIELD_ID, "status": "ok", "soil": _SOIL_EXAMPLE},
+                        {"id": "ftw-2025-17TPK_0_0-0", "status": "error", "error": {"code": 404, "detail": "Field not found"}}],
+            "requested": 2, "succeeded": 1, "failed": 1}),
+        422: {"description": "No IDs, more than 100 IDs, an empty ID, or an unknown request property."},
+        503: FIELDS_UNAVAILABLE,
+    },
+}
+
+SOIL = {
+    "summary": "Topsoil of any outline",
+    "description": "Topsoil properties inside any outline.\n\n" + SOIL_TEXT,
+    "responses": {
+        200: ok("Topsoil estimates for the outline (depths trimmed in this example).", _SOIL_EXAMPLE),
+        422: {"description": "Invalid polygon or unknown request property."},
+        502: SOIL_PROVIDER_ERROR,
     },
 }

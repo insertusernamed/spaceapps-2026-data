@@ -324,6 +324,29 @@ refreshed every 6 hours. Collection 1 is used where available; seasons it lacks
 (2017, 2022) come from the original collection. Needs `rasterio`
 (in `requirements.txt`).
 
+## Field soil
+
+`GET /fields/{field_id}/soil` returns topsoil estimates for a field from ISRIC
+SoilGrids 2.0 (250 m, global, CC BY 4.0); `POST /fields/soil` with `{"ids": [...]}`
+answers up to 100 fields in request order (per-field `status`, like crop history),
+and `POST /soil` takes any outline. Values are averaged over every 250 m cell the
+outline touches:
+
+- `topsoil`: thickness-weighted 0-30 cm pH, clay/sand/silt (%), organic carbon and
+  nitrogen (g/kg), bulk density (g/cm3) and CEC (cmol(+)/kg); `depths` gives the
+  same for 0-5, 5-15 and 15-30 cm.
+- `derived`: USDA texture class, organic matter % (organic carbon x 1.724), USDA pH
+  class, and plant-available water in the top 30 cm (Saxton & Rawls 2006).
+
+These are machine-learning estimates, not a soil test, and are null over water,
+ice or built-up land. The maps are read as cloud-optimized GeoTIFFs rather than
+through the SoilGrids REST service, which allows only five requests a minute. Each
+of the 24 layers has a tile index (about 6 MB, 144 MB in total) that is downloaded
+once and kept in `SOIL_INDEX_DIR` (default: a `soilgrids-index` folder beside
+`FIELDS_DB`, else `data/soilgrids-index`). The first request after a fresh install
+downloads them (about 40 seconds); later fields take about 2 seconds, and repeats
+are cached.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.

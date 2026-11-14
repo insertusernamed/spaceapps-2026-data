@@ -1,4 +1,4 @@
-"""Request models for outline-based routes (crop history, greenness); the lookups live in environmental."""
+"""Request models for field and outline routes (crop history, greenness, soil); the lookups live in environmental."""
 from __future__ import annotations
 
 from typing import Annotated, Any
@@ -37,7 +37,9 @@ MAX_BATCH_FIELDS = 100
 FieldId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 
-class FieldCropHistoryBatchRequest(BaseModel):
+class FieldBatchRequest(BaseModel):
+    """Up to MAX_BATCH_FIELDS field IDs, for routes that answer several fields at once."""
+
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{
         "ids": ["ftw-2025-17TPK_0_0-13020", "ftw-2025-17TPK_0_0-3837"]}]})
     ids: list[FieldId] = Field(
@@ -51,12 +53,28 @@ class FieldCropHistoryBatchRequest(BaseModel):
         return list(dict.fromkeys(value))
 
 
+# Original name, kept for existing imports.
+FieldCropHistoryBatchRequest = FieldBatchRequest
+
+
 class GreennessRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"polygon": EXAMPLE_POLYGON, "year": 2024}]})
     polygon: dict[str, Any] | list[list[float]] = Field(
         description="GeoJSON Polygon, MultiPolygon or Feature, or a ring of [longitude, latitude] positions."
     )
     year: int | None = Field(default=None, description="Growing season year; defaults to the most recent season.")
+
+    @field_validator("polygon", mode="before")
+    @classmethod
+    def valid_polygon(cls, value):
+        return CropHistoryRequest.valid_polygon(value)
+
+
+class SoilRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"polygon": EXAMPLE_POLYGON}]})
+    polygon: dict[str, Any] | list[list[float]] = Field(
+        description="GeoJSON Polygon, MultiPolygon or Feature, or a ring of [longitude, latitude] positions."
+    )
 
     @field_validator("polygon", mode="before")
     @classmethod
