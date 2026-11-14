@@ -28,6 +28,8 @@ COPY *.py ./
 COPY environmental ./environmental
 COPY data/fields.geojson ./data/
 
+RUN mkdir -p /app/data/smap && chown spaceapps:spaceapps /app/data/smap
+
 USER 1000:1000
 EXPOSE 8091
 

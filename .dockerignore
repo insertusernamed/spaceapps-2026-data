@@ -3,6 +3,7 @@
 .env
 .env.*
 .venv*
+.python-runtime
 __pycache__
 **/__pycache__
 *.pyc

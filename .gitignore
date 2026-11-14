@@ -1,7 +1,11 @@
 .env
+.env.
 __pycache__/
 .venv/
+.venv-smap/
+.python-runtime/
 
 data/*.sqlite*
 data/downloads/
 data/background/
+data/smap/

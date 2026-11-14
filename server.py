@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 import api_docs as docs
 import field_store
 import middleware
+import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
 from crop_history import CropHistoryRequest
 from environmental import crops
@@ -71,6 +72,20 @@ def daily_point(
 
 
 DEFAULT_FIELDS_DB = Path(__file__).with_name("data") / "fields.sqlite"
+
+
+@app.get("/soil-moisture", tags=["Environment"], **docs.SOIL_MOISTURE)
+def soil_moisture() -> dict:
+    try:
+        return smap.get_layer()
+    except EarthdataError as exc:
+        raise HTTPException(status_code=503, detail="Configure EARTHDATA_USERNAME and EARTHDATA_PASSWORD on the API host to fetch SMAP data") from exc
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail="NASA SMAP request failed; retry later") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        raise HTTPException(status_code=503, detail="SMAP layer could not be acquired or read; check dependencies, cache permissions, and Earthdata access on the API host") from exc
 
 
 DEFAULT_FIELDS_FILE = Path(__file__).with_name("data") / "fields.geojson"

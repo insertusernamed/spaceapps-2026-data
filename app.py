@@ -123,6 +123,11 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("--end", required=True, help="YYYYMMDD")
     fetch.add_argument("--parameters", default="T2M,PRECTOTCORR")
 
+    smap = sub.add_parser("fetch-smap", help="fetch a native 9 km SMAP soil moisture map layer")
+    smap.add_argument("--bbox", default="-79.7,44.35,-79.05,44.85", help="west,south,east,north (use --bbox=... for negative longitude)")
+    smap.add_argument("--date", help="YYYY-MM-DD; latest 3-hour interval that day, or latest available if omitted")
+    smap.add_argument("--output", type=Path, help="output GeoJSON path")
+
     args = parser.parse_args(argv)
     if args.command is None:
         parser.print_help()
@@ -132,13 +137,24 @@ def main(argv: list[str] | None = None) -> int:
         "init-env": lambda: cmd_init_env(args.force),
         "check-auth": cmd_check_auth,
         "fetch": lambda: cmd_fetch(args),
+        "fetch-smap": lambda: cmd_fetch_smap(args),
     }
     try:
         handlers[args.command]()
-    except (EarthdataError, requests.RequestException) as exc:
+    except (EarthdataError, requests.RequestException, ValueError, RuntimeError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 0
+
+
+def cmd_fetch_smap(args: argparse.Namespace) -> None:
+    from fields import parse_bbox
+    from smap import acquire, layer_path
+
+    output = layer_path(args.output)
+    layer = acquire(parse_bbox(args.bbox), args.date, output)
+    print(f"Wrote {len(layer['features'])} SMAP cells to {output}")
+    print(f"Interval: {layer['metadata']['time_start']} to {layer['metadata']['time_end']}")
 
 
 if __name__ == "__main__":

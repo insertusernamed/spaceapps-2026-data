@@ -65,6 +65,16 @@ def ok(description: str, example: dict) -> dict:
     return {"description": description, "content": {"application/json": {"example": example}}}
 
 
+SOIL_MOISTURE = {
+    "summary": "SMAP soil moisture map layer",
+    "description": "Return SMAP V008 native 9 km cells as GeoJSON. Each feature includes surface/root zone/profile moisture, relative wetness, moisture percentiles, surface and six soil-layer temperatures (K), infiltration/runoff/baseflow/evapotranspiration rates (kg m-2 s-1), saturated/wilting land fractions, and static porosity/wilting point/clay/sand properties from science-version-matched SPL4SMLM. metadata.variables describes each field's units and source; missing values are null. The legacy metadata.units applies only to volumetric moisture. Ancillary dynamic outputs have different validation status from core moisture; static properties are model inputs. Missing caches stream the latest Orillia-area data through Earthaccess. Older caches upgrade while preserving the region/day. Initial requests need Earthdata credentials on the API host and can take longer; subsequent requests serve the saved layer.",
+    "responses": {
+        502: error("NASA request failed", "NASA SMAP request failed; retry later"),
+        503: error("Layer or configuration unavailable", "Configure EARTHDATA_USERNAME and EARTHDATA_PASSWORD on the API host to fetch SMAP data"),
+    },
+}
+
+
 FIELDS_UNAVAILABLE = error("Field boundary data is missing or unreadable on the server.",
                            "Field boundary database is unavailable or invalid")
 

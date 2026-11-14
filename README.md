@@ -191,6 +191,80 @@ a weather provider failure returns 502. First requests depend on upstream latenc
 Install test dependencies with `pip install -r requirements-dev.txt`, then run
 `python -m unittest discover tests -v`.
 
+## SMAP soil moisture layer
+
+The acquisition command uses the same `EARTHDATA_USERNAME` and
+`EARTHDATA_PASSWORD` as the Python setup above. It reads `.env` (or the existing
+local `.env.` filename). Credentials remain on the backend.
+
+```sh
+source .venv/bin/activate
+pip install -r requirements.txt
+python app.py fetch-smap
+# Optional date/region; negative bbox values need the equals sign:
+python app.py fetch-smap --date 2025-01-01 --bbox=-79.7,44.35,-79.05,44.85
+```
+
+Defaults to the Orillia field-preview region and the latest available 3-hour
+interval. An explicit date selects the latest interval that day, not a daily
+average. `earthaccess.open()` opens an authenticated, seekable remote HDF5
+stream. The converter reads coordinate axes and regional slices of the two
+soil moisture variables through that stream. It does not save a global HDF5
+file locally. HDF5 chunks and caching determine the actual bytes transferred;
+streaming can still read more data than the requested pixels. Only the regional
+GeoJSON is saved. The regional result replaces
+`data/smap/soil-moisture.geojson` atomically after successful conversion; failed
+acquisition preserves the previous layer. Re-run to refresh it. There is no
+scheduled refresh. Regions are limited to 10 by 10 degrees per fetch.
+
+`GET /soil-moisture` streams the latest Orillia-area data through Earthaccess
+and creates the GeoJSON automatically when its cache is missing. Older response
+schemas are upgraded while preserving the cached region and day. The first
+request requires Earthdata credentials and can take longer; subsequent requests
+serve the cache without contacting NASA. To choose another region or date, or
+refresh an existing cache, use `python app.py fetch-smap`. `SMAP_FILE` selects
+the cache path for both acquisition and serving. Python 3.12 is recommended;
+newer interpreters may need native build tools for HDF5 dependencies.
+For Docker, rebuild the image after dependency changes and mount `.env` at
+`/app/.env` (or pass the two Earthdata environment variables). Mount a writable
+layer directory at `/app/data/smap` to retain the cache across container changes
+or set `SMAP_FILE` to a file on your existing data volume. The frontend's Vite
+proxy exposes the endpoint as `/api/soil-moisture`; the map can use the response
+as a MapLibre GeoJSON source. A visual map toggle is not included.
+
+Each feature is one native EASE-Grid cell transformed to a WGS84 polygon.
+Feature properties retain NASA variable names:
+
+| Properties | Meaning / units |
+| --- | --- |
+| `sm_surface`, `sm_rootzone`, `sm_profile` | Moisture in m³/m³: 0–5 cm, 0–100 cm, and surface to model bedrock |
+| `sm_surface_wetness`, `sm_rootzone_wetness`, `sm_profile_wetness` | Relative saturation, 0–1 |
+| `sm_rootzone_pctl`, `sm_profile_pctl` | Seasonal moisture percentiles, 0–100; not water content percentages |
+| `surface_temp`, `soil_temp_layer1` through `soil_temp_layer6` | Model temperatures in kelvin; subtract 273.15 for Celsius |
+| `soil_water_infiltration_flux`, `overland_runoff_flux`, `baseflow_flux`, `land_evapotranspiration_flux` | Water flux rates in kg m⁻² s⁻¹; not daily totals |
+| `land_fraction_saturated`, `land_fraction_wilting` | Fractions of grid-cell land area saturated/wilting and snow-free, 0–1 |
+| `clsm_poros`, `clsm_wp` | Static land model porosity and wilting point, m³/m³ |
+| `mwrtm_clay`, `mwrtm_sand` | Static microwave-model clay and sand fractions, 0–1 |
+
+`metadata.variables` documents units, descriptions, source product, and whether
+each variable is static. The legacy `metadata.units` applies to moisture only.
+Static properties are streamed from SPL4SMLM matching the geophysical filename's
+science version and checked against its coordinate grid. `metadata.soil_constants`
+records that file's provenance; these are model inputs, not soil test results.
+Missing values are `null`; `metadata.missing_variables` lists absent datasets.
+Cells missing both core moisture variables are omitted. The previous cache is
+preserved if either product cannot be acquired or their grids do not match.
+Metadata includes the actual time interval, source filename, acquisition time,
+resolution and DOI. These are model-assimilated 9 km grid values, not individual
+field measurements. Ancillary dynamic fields have different validation status
+from the core soil moisture variables.
+The cache covers only the requested region; it does not expand when panning.
+
+Sources: [SPL4SMGP Version 8](https://nsidc.org/data/spl4smgp/versions/8),
+[CMR API](https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html),
+[Earthaccess](https://earthaccess.readthedocs.io/en/latest/api/).
+Use the product's required citation when publishing results.
+
 ## Crop history
 
 `GET /fields/{field_id}/crop-history` returns what was planted in a field each
