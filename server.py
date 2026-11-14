@@ -14,6 +14,8 @@ import api_docs as docs
 import field_store
 import middleware
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
+from crop_history import CropHistoryRequest
+from environmental import crops
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -147,3 +149,35 @@ def field_summary(request: FieldSummaryRequest) -> dict:
         return summarize_field(request)
     except DataError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+def _field_geometry(field_id: str) -> dict | None:
+    database = _database()
+    if database is not None:
+        try:
+            feature = field_store.feature(database, field_id)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Field boundary database is unavailable or invalid") from exc
+    else:
+        feature = _fields().get(field_id)
+    return None if feature is None else feature["geometry"]
+
+
+def _crop_history(polygon) -> dict:
+    try:
+        return crops.history(polygon)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/crop-history", tags=["Crops"], **docs.CROP_HISTORY_FIELD)
+def field_crop_history(field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID))) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_crop_history(polygon)}
+
+
+@app.post("/crop-history", tags=["Crops"], **docs.CROP_HISTORY)
+def crop_history(request: CropHistoryRequest) -> dict:
+    return _crop_history(request.polygon)

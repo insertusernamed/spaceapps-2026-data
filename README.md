@@ -143,7 +143,8 @@ its own static tile contract. Fetch each viewport, then request acreage on click
 `POST /field-summary` accepts the geometry of a selected field from `/fields`.
 It returns area and centroid, the weather sampling coordinate, climate indicators,
 seasonal water balance, frost dates, monthly climate averages, data coverage,
-terrain statistics, and source metadata. It does not return crop information.
+terrain statistics, and source metadata. Crops are covered by the crop history
+routes below.
 No Earthdata credentials are needed.
 
 Example request (also available in Swagger):
@@ -185,6 +186,23 @@ a weather provider failure returns 502. First requests depend on upstream latenc
 
 Install test dependencies with `pip install -r requirements-dev.txt`, then run
 `python -m unittest discover tests -v`.
+
+## Crop history
+
+`GET /fields/{field_id}/crop-history` returns what was planted in a field each
+year; `POST /crop-history` with `{"polygon": ...}` does the same for any outline.
+Each year reports the class covering most of the field, its share (0–1), and up
+to five classes covering at least 1%. `rotation` lists the main class per year.
+
+Canada uses the AAFC Annual Crop Inventory (Ontario from 2011, other provinces
+from 2009); the United States uses the USDA NASS Cropland Data Layer (from 2008).
+Both are 30 m satellite classifications that need no account, and the newest
+published year is detected automatically. One request per year summarises every
+map pixel inside the outline, so a field takes about a second the first time and
+is cached afterwards. Class names are each provider's own. Any single year can be
+misclassified, especially at field edges. Locations outside Canada and the United
+States, including Mexico, return no years. Legends are in
+`environmental/crop_classes.py`.
 
 ## Background North American acquisition
 

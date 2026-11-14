@@ -76,6 +76,15 @@ def list_features(path: Path, bbox, limit=500, cursor=0):
     }
 
 
+def feature(path: Path, field_id):
+    """The stored GeoJSON feature for one field ID, or None."""
+    with connect(path) as db:
+        row = db.execute("SELECT feature FROM fields WHERE id=?", (field_id,)).fetchone()
+    if row is None:
+        return None
+    return json.loads(zlib.decompress(row[0]) if isinstance(row[0], bytes) else row[0])
+
+
 def selected(path: Path, field_id):
     with connect(path) as db:
         row = db.execute(

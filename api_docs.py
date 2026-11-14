@@ -31,11 +31,13 @@ Agricultural field outlines, field areas and environmental summaries for map-bas
 ### What the data is
 Each outline is a **predicted agricultural field** from Fields of the World (Global 2nd Edition, 2025, CC-BY-4.0).
 It is not a farm, an ownership parcel or a complete farm registry, and field IDs belong to one source edition.
-Areas are estimated from outlines, not surveyed. No route returns crop information.
+Areas are estimated from outlines, not surveyed. Outlines carry no crop labels; what was planted each year comes
+from national crop maps via the crop history routes.
 """
 
 TAGS = [
     {"name": "Fields", "description": "Predicted agricultural field outlines and their estimated areas."},
+    {"name": "Crops", "description": "What was planted in a field each year, from Canadian and US 30 m crop inventory maps."},
     {"name": "Environment", "description": "Climate, water balance, frost and terrain summaries from NASA data."},
     {"name": "Service", "description": "Liveness and readiness probes for monitoring and deployment."},
 ]
@@ -93,7 +95,7 @@ FIELDS = {
         "`cursor` set to `nextCursor`. When the map moves, start again from `cursor=0`. Cursors are positions in "
         "the current database and are not stable across rebuilds.\n\n"
         "Each feature has `id` and, for the indexed source, `properties.score`: the 0–100 mean model score. "
-        "It is not a calibrated probability. Outlines carry no crop information."
+        "It is not a calibrated probability. Outlines carry no crop labels; use `/fields/{field_id}/crop-history`."
     ),
     "responses": {
         200: ok("A page of field outlines.", {
@@ -156,7 +158,7 @@ SUMMARY = {
     "summary": "Environmental summary of a field",
     "description": (
         "Post a field's `geometry` from `/fields` to get its climate, seasonal water balance, frost dates, monthly "
-        "climate averages, data coverage and terrain, with source metadata. No crop information is returned.\n\n"
+        "climate averages, data coverage and terrain, with source metadata. For crops, use the crop history routes.\n\n"
         "**Defaults:** years 2015–2024; growing season May–September north of the equator, November–March south of it. "
         "Dates accept `YYYY-MM-DD` or `YYYYMMDD`, must fall between 1981 and today, and may span at most 45 years. "
         "Season months must be consecutive and may cross December.\n\n"
@@ -191,5 +193,62 @@ DAILY_POINT = {
         401: error("Earthdata credentials are missing or rejected on the server.", "Earthdata login failed (HTTP 401)"),
         422: {"description": "Coordinates out of range or dates not in YYYYMMDD form."},
         502: {"model": ErrorResponse, "description": "NASA POWER could not be reached or returned an error."},
+    },
+}
+
+CROP_HISTORY_TEXT = (
+    "One entry per year with the class that covers most of the field, its `share` of the field (0–1), and up to five "
+    "classes covering at least 1% each. `rotation` lists the main class per year; `distinctCrops` and `cropYears` "
+    "count only crop classes, not grass, forest, water or developed land.\n\n"
+    "**Sources** (30 m, no account): Canada uses the AAFC Annual Crop Inventory (Ontario from 2011, other provinces "
+    "from 2009). The United States uses the USDA NASS Cropland Data Layer (from 2008). The most recent published year "
+    "is picked up automatically. Class names are each provider's own, so they differ between countries "
+    "(for example `Corn for grain` and `Corn`).\n\n"
+    "**Limits:** these are satellite classifications. Any one year can be wrong, most often at field edges and for less "
+    "common crops, and a low `share` usually means mixed pixels or an outline that has changed. Outside Canada and the "
+    "United States, including Mexico, `years` is empty and `source` is null. Years a provider fails to return are "
+    "listed in `unavailableYears`. The first request for a field takes about a second; repeats are cached."
+)
+
+_CROP_EXAMPLE = {
+    "source": {"name": "AAFC Annual Crop Inventory", "url": "https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9",
+               "license": "Open Government Licence - Canada", "resolutionM": 30},
+    "years": [
+        {"year": 2024, "crop": "Corn for grain", "code": 147, "isCrop": True, "share": 0.877, "classes": [
+            {"code": 147, "name": "Corn for grain", "isCrop": True, "share": 0.877},
+            {"code": 145, "name": "Winter wheat", "isCrop": True, "share": 0.06},
+            {"code": 136, "name": "Oats", "isCrop": True, "share": 0.039}]},
+        {"year": 2025, "crop": "Soybeans", "code": 158, "isCrop": True, "share": 0.967, "classes": [
+            {"code": 158, "name": "Soybeans", "isCrop": True, "share": 0.967},
+            {"code": 147, "name": "Corn for grain", "isCrop": True, "share": 0.029}]},
+    ],
+    "rotation": ["Corn for grain", "Soybeans"],
+    "distinctCrops": ["Corn for grain", "Soybeans"],
+    "cropYears": 2,
+    "unavailableYears": [],
+    "note": "Satellite classification: any single year can be wrong, especially at field edges.",
+}
+
+CROP_PROVIDER_ERROR = error("The crop map service could not be reached.", "AAFC Annual Crop Inventory is unavailable")
+
+CROP_HISTORY_FIELD = {
+    "summary": "Crop history of a field",
+    "description": "What was planted in a field from `/fields`, year by year.\n\n" + CROP_HISTORY_TEXT,
+    "responses": {
+        200: ok("Year-by-year crop classes for the field (example trimmed to two years).", {"id": EXAMPLE_FIELD_ID, **_CROP_EXAMPLE}),
+        404: error("No field has this ID in the loaded data.", "Field not found"),
+        502: CROP_PROVIDER_ERROR,
+        503: FIELDS_UNAVAILABLE,
+    },
+}
+
+CROP_HISTORY = {
+    "summary": "Crop history of any outline",
+    "description": ("What was planted inside any outline, year by year. Use it for areas drawn by the user; for fields "
+                    "from `/fields`, `GET /fields/{field_id}/crop-history` avoids sending the geometry.\n\n" + CROP_HISTORY_TEXT),
+    "responses": {
+        200: ok("Year-by-year crop classes for the outline (example trimmed to two years).", _CROP_EXAMPLE),
+        422: {"description": "Invalid polygon or unknown request property."},
+        502: CROP_PROVIDER_ERROR,
     },
 }
