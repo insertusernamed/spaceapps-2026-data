@@ -31,8 +31,9 @@ python -m unittest discover tests
 
 ## Field selection API
 
-Run `python -m uvicorn server:app --host 127.0.0.1 --port 8000`.
-Swagger UI: <http://127.0.0.1:8000/docs>.
+Run `python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload`.
+Swagger UI: <http://127.0.0.1:8000/docs>. The development server restarts automatically
+when Python files change; refresh Swagger to see route changes.
 
 - `GET /fields`: WGS84 GeoJSON outlines with IDs, without crop information.
 - `GET /fields?bbox=-91.96,41.34,-91.90,41.40`: filter by bounding-box intersection
