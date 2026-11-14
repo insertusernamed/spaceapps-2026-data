@@ -7,6 +7,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 import field_store
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
@@ -20,6 +21,27 @@ app = FastAPI(title="SpaceApps 2026 Data API", version="0.1")
 @app.get("/health", summary="Liveness check")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/ready", summary="Readiness check", responses={503: {"description": "Field boundary data is unavailable"}})
+def ready() -> JSONResponse:
+    """Report whether the configured field boundary data can be read.
+
+    Returns 200 when field routes can answer and 503 when they cannot. NASA POWER and
+    terrain providers are not contacted, so upstream outages do not affect readiness.
+    """
+    database = _database()
+    source = "database" if database is not None else "geojson"
+    try:
+        if database is not None:
+            field_store.readable(database)
+        else:
+            load_fields(Path(os.environ.get("FIELDS_FILE", DEFAULT_FIELDS_FILE)))
+        status = "ok"
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, IndexError):
+        status = "unavailable"
+    ok = status == "ok"
+    return JSONResponse({"ready": ok, "checks": {"fields": status, "source": source}}, status_code=200 if ok else 503)
 
 
 @app.get("/daily-point", summary="NASA POWER daily point data")

@@ -15,6 +15,12 @@ def connect(path: Path):
     return closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True))
 
 
+def readable(path: Path) -> None:
+    """Raise unless the index opens read-only and its field table can be queried."""
+    with connect(path) as db:
+        db.execute("SELECT 1 FROM fields LIMIT 1").fetchall()
+
+
 def initialize(connection):
     connection.executescript("""
         CREATE TABLE IF NOT EXISTS fields (
