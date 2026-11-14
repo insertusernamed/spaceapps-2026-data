@@ -198,3 +198,14 @@ The background service is `spaceapps-field-import.service` in the user's systemd
 manager. It uses a 50 GiB free-space reserve and a 250 GiB database budget.
 Check it with `systemctl --user status spaceapps-field-import.service`, and inspect
 live API ingestion status at `/field-coverage`.
+
+The host's user service definition is versioned at
+[`deploy/spaceapps-field-import.service`](deploy/spaceapps-field-import.service).
+Install it into `~/.config/systemd/user/`, then run `systemctl --user daemon-reload`
+and `systemctl --user enable --now spaceapps-field-import.service`. User lingering
+is enabled on the current host so the job survives SSH logout and starts after boot.
+The existing `spaceapps-data` Docker service uses port 8091 and mounts the persistent
+field directory at `/var/lib/spaceapps-fields`, with
+`FIELDS_DB=/var/lib/spaceapps-fields/fields.sqlite`. Both processes use UID/GID 1000
+for shared SQLite file access. Use systemd to start/stop the managed worker rather
+than starting a second worker manually.
