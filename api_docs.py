@@ -105,7 +105,19 @@ FIELDS = {
         "**Pagination:** while `hasMore` is true, request again with the same `bbox` and `limit` and with "
         "`cursor` set to `nextCursor`. When the map moves, start again from `cursor=0`. Cursors are positions in "
         "the current database and are not stable across rebuilds.\n\n"
-        "Each feature has `id` and, for the indexed source, `properties.score`: the 0–100 mean model score. "
+        "**Field facts for the sidebar** travel with every outline in `properties`, so a client can show them on click "
+        "without another request. All are computed from the outline itself:\n"
+        "- `areaHa`, `areaAcres`: estimated area (outline minus holes), not surveyed.\n"
+        "- `perimeterM`: boundary length in metres, including holes (fencing, headlands).\n"
+        "- `lengthM`, `widthM`, `orientationDeg`: the smallest enclosing rectangle aligned with the field's main axis or "
+        "longest edges. `orientationDeg` is the long side's bearing, 0–179° clockwise from north (0 = north–south, "
+        "90 = east–west), a guide to working direction.\n"
+        "- `compactness`: 4π·area/perimeter², from 0 to 1 (circle 1, square 0.79); low values mean irregular or narrow "
+        "fields with more turning and edge.\n"
+        "- `holes`: areas inside the outline that are not field (wet spots, trees, buildings); `parts`: separate pieces.\n"
+        "- `centroid`: `[longitude, latitude]` of the field's centre, for labels.\n"
+        "- `sourceYear`: edition of the boundary data.\n\n"
+        "Each feature also has `id` and, for the indexed source, `properties.score`: the 0–100 mean model score. "
         "It is not a calibrated probability. Outlines carry no crop labels; use `/fields/{field_id}/crop-history`.\n\n"
         "Coordinates are cut to 6 decimal places (about 0.1 m), well below the outlines' own accuracy. "
         "The response is gzip-compressed for clients that send `Accept-Encoding: gzip`."
@@ -115,7 +127,9 @@ FIELDS = {
             "type": "FeatureCollection",
             "features": [{
                 "type": "Feature", "id": EXAMPLE_FIELD_ID,
-                "properties": {"id": EXAMPLE_FIELD_ID, "score": 80},
+                "properties": {"areaHa": 42.72, "areaAcres": 105.56, "perimeterM": 4109, "lengthM": 1205, "widthM": 416,
+                               "orientationDeg": 162, "compactness": 0.32, "holes": 0, "parts": 1,
+                               "centroid": [-79.156222, 44.345239], "sourceYear": 2025, "id": EXAMPLE_FIELD_ID, "score": 80},
                 "geometry": {"type": "Polygon", "coordinates": [[
                     [-79.159, 44.349], [-79.150, 44.349], [-79.150, 44.355], [-79.159, 44.355], [-79.159, 44.349]]]},
             }],

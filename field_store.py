@@ -11,6 +11,8 @@ from collections import OrderedDict
 from contextlib import closing
 from pathlib import Path
 
+import field_info
+
 ORILLIA_BBOX = (-79.7, 44.35, -79.05, 44.85)
 
 
@@ -71,24 +73,58 @@ def compact(feature_json: bytes) -> bytes:
     return _EXTRA_DECIMALS.sub(b"", feature_json)
 
 
-def _compact_row(rowid: int, stored) -> bytes:
-    """Compacted feature JSON for one stored row, reused while the stored value is unchanged."""
-    global _cache_size
-    data = stored if isinstance(stored, bytes) else stored.encode()
-    key = (rowid, zlib.crc32(data))
+def with_facts(feature_json: bytes, facts: dict) -> bytes:
+    """Insert `facts` at the start of a serialized feature's properties, without re-serializing it."""
+    extra = json.dumps(facts, separators=(",", ":"))[1:-1].encode()
+    if b'"properties":{}' in feature_json:
+        return feature_json.replace(b'"properties":{}', b'"properties":{' + extra + b"}", 1)
+    if b'"properties":{' in feature_json:
+        return feature_json.replace(b'"properties":{', b'"properties":{' + extra + b",", 1)
+    feature = json.loads(feature_json)
+    feature["properties"] = {**facts, **(feature.get("properties") or {})}
+    return json.dumps(feature, separators=(",", ":")).encode()
+
+
+def _cached(key):
     with _cache_lock:
         hit = _cache.get(key)
         if hit is not None:
             _cache.move_to_end(key)
-            return hit
-    out = compact(zlib.decompress(data) if isinstance(stored, bytes) else data)
+        return hit
+
+
+def _remember(key, value: bytes) -> None:
+    global _cache_size
     with _cache_lock:
-        if key not in _cache:
-            _cache[key] = out
-            _cache_size += len(out)
-            while _cache_size > _CACHE_BYTES:
-                _, old = _cache.popitem(last=False)
-                _cache_size -= len(old)
+        if key in _cache:
+            return
+        _cache[key] = value
+        _cache_size += len(value)
+        while _cache_size > _CACHE_BYTES:
+            _, old = _cache.popitem(last=False)
+            _cache_size -= len(old)
+
+
+def _served_rows(rows) -> list[bytes]:
+    """Compacted feature JSON with quick facts for (rowid, stored feature, hectares) rows.
+
+    Facts for rows not yet cached are computed together in one vectorised pass;
+    results are reused while a row's stored value is unchanged.
+    """
+    out: list[bytes | None] = []
+    missing = []
+    for rowid, stored, hectares in rows:
+        data = stored if isinstance(stored, bytes) else stored.encode()
+        key = (rowid, zlib.crc32(data))
+        hit = _cached(key)
+        out.append(hit)
+        if hit is None:
+            missing.append((len(out) - 1, key, zlib.decompress(data) if isinstance(stored, bytes) else data, hectares))
+    if missing:
+        facts = field_info.describe_many([json.loads(raw) for _, _, raw, _ in missing], [ha for *_, ha in missing])
+        for (slot, key, raw, _), fact in zip(missing, facts, strict=True):
+            out[slot] = with_facts(compact(raw), fact)
+            _remember(key, out[slot])
     return out
 
 
@@ -99,17 +135,17 @@ def feature_collection(features: list[bytes], **meta) -> bytes:
 
 
 def list_features(path: Path, bbox, limit=500, cursor=0) -> bytes:
-    """One page of compacted features as JSON bytes, without parsing the stored GeoJSON."""
+    """One page of compacted features with quick facts in their properties, as JSON bytes."""
     west, south, east, north = bbox
     with connect(path) as db:
         rows = db.execute(
-            """SELECT f.rowid, f.feature FROM bounds b JOIN fields f ON f.rowid=b.rowid
+            """SELECT f.rowid, f.feature, f.hectares FROM bounds b JOIN fields f ON f.rowid=b.rowid
             WHERE b.west<=? AND b.east>=? AND b.south<=? AND b.north>=? AND f.rowid>?
             ORDER BY f.rowid LIMIT ?""",
             (east, west, north, south, cursor, limit + 1),
         ).fetchall()
     return feature_collection(
-        [_compact_row(rowid, stored) for rowid, stored in rows[:limit]],
+        _served_rows(rows[:limit]),
         numberReturned=min(len(rows), limit),
         hasMore=len(rows) > limit,
         nextCursor=rows[limit - 1][0] if len(rows) > limit else None,

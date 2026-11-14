@@ -69,6 +69,11 @@ changed routes. Route descriptions, tags and examples shown in Swagger live in
 - Follow `nextCursor` using the same bbox and limit while `hasMore` is true.
   Pages default to 50 features, capped at 2,000. Changing the viewport resets
   the cursor to zero. A missing bbox defaults to the Orillia area for the database.
+- Each outline's `properties` carry quick field facts for a sidebar, computed from
+  the outline: `areaHa`, `areaAcres`, `perimeterM`, `lengthM`, `widthM`,
+  `orientationDeg` (long side's bearing from north, 0-179), `compactness` (0-1,
+  circle 1), `holes`, `parts`, `centroid` ([lon, lat]) and `sourceYear`. They are
+  computed once per field on first request and cached (about 0.05 ms a field).
 - Coordinates are cut to 6 decimal places (about 0.1 m). Responses over 1 KB are
   gzip-compressed for clients that send `Accept-Encoding: gzip`.
 - `GET /fields/{field_id}` returns estimated hectares and acres for a clicked ID.

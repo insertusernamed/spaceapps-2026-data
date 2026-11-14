@@ -12,6 +12,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 import api_docs as docs
+import field_info
 import field_store
 import middleware
 import smap
@@ -126,8 +127,10 @@ def list_fields(
     features = field_map(_fields(), bounds)["features"]
     page = features[cursor:cursor + limit]
     more = len(features) > cursor + limit
+    facts = field_info.describe_many(page)
     body = field_store.feature_collection(
-        [field_store.compact(json.dumps(f, separators=(",", ":")).encode()) for f in page],
+        [field_store.with_facts(field_store.compact(json.dumps(f, separators=(",", ":")).encode()), fact)
+         for f, fact in zip(page, facts, strict=True)],
         numberReturned=len(page), hasMore=more, nextCursor=cursor + limit if more else None)
     return Response(body, media_type=GEOJSON)
 

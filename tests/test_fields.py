@@ -35,7 +35,11 @@ class TestFields(unittest.TestCase):
                 response = client.get('/fields')
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(len(response.json()['features']), 2)
-                self.assertEqual(response.json()['features'][0]['properties'], {'id': '0'})
+                props = response.json()['features'][0]['properties']
+                self.assertEqual(props['id'], '0')
+                self.assertNotIn('crop', props)  # source properties are still stripped
+                self.assertAlmostEqual(props['areaHa'], 123.64, places=2)
+                self.assertEqual(props['holes'], 0)
                 filtered = client.get('/fields', params={'bbox': '-0.01,-0.01,0.02,0.02'}).json()
                 self.assertEqual([f['id'] for f in filtered['features']], ['0'])
                 self.assertEqual(client.get('/fields', params={'bbox': '5,5,6,6'}).json()['features'], [])
