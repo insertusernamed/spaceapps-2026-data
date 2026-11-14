@@ -7,9 +7,10 @@ from pathlib import Path
 import requests
 from fastapi import FastAPI, HTTPException, Query
 
-from fields import acreage, field_map, load_fields, parse_bbox
-
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
+from environmental.errors import DataError
+from field_summary import FieldSummaryRequest, summarize_field
+from fields import acreage, field_map, load_fields, parse_bbox
 
 app = FastAPI(title="SpaceApps 2026 Data API", version="0.1")
 
@@ -63,3 +64,11 @@ def selected_field(field_id: str) -> dict:
     if feature is None:
         raise HTTPException(status_code=404, detail="Field not found")
     return acreage(feature)
+
+
+@app.post('/field-summary', summary='Climate, water balance, frost and terrain for a selected field')
+def field_summary(request: FieldSummaryRequest) -> dict:
+    try:
+        return summarize_field(request)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
