@@ -111,7 +111,7 @@ class TestBackgroundFields(unittest.TestCase):
                 second = json.loads((job / "status.json").read_text())
                 self.assertEqual(first["completed"], second["completed"])
                 self.assertEqual(second["fields"], 3)
-                page = field_store.list_features(dbpath, (-180, 0, 0, 90), limit=10)
+                page = json.loads(field_store.list_features(dbpath, (-180, 0, 0, 90), limit=10))
                 self.assertEqual(len(page["features"]), 3)
                 with sqlite3.connect(dbpath) as db:
                     self.assertEqual(
@@ -127,7 +127,7 @@ class TestBackgroundFields(unittest.TestCase):
                     )
                 self.assertEqual(
                     len(
-                        field_store.list_features(dbpath, (-180, 0, 0, 90), limit=10)[
+                        json.loads(field_store.list_features(dbpath, (-180, 0, 0, 90), limit=10))[
                             "features"
                         ]
                     ),

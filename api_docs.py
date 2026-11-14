@@ -23,6 +23,7 @@ Agricultural field outlines, field areas and environmental summaries for map-bas
 - Coordinates are WGS84 degrees. GeoJSON positions are `[longitude, latitude]`.
 - A bbox is `west,south,east,north`. Split boxes that cross the antimeridian into two requests.
 - Errors return JSON `{"detail": ...}` with a 4xx or 5xx status.
+- Responses over 1 KB are gzip-compressed when the client sends `Accept-Encoding: gzip`.
 - Every response has an `X-Request-Id` header. Send your own (up to 128 letters, digits or `._:-`)
   to trace a request, and quote it when reporting a problem.
 - Cross-origin browser calls are off unless the server sets `CORS_ORIGINS`. Server-side callers and same-origin proxies are unaffected.
@@ -95,7 +96,9 @@ FIELDS = {
         "`cursor` set to `nextCursor`. When the map moves, start again from `cursor=0`. Cursors are positions in "
         "the current database and are not stable across rebuilds.\n\n"
         "Each feature has `id` and, for the indexed source, `properties.score`: the 0–100 mean model score. "
-        "It is not a calibrated probability. Outlines carry no crop labels; use `/fields/{field_id}/crop-history`."
+        "It is not a calibrated probability. Outlines carry no crop labels; use `/fields/{field_id}/crop-history`.\n\n"
+        "Coordinates are cut to 6 decimal places (about 0.1 m), well below the outlines' own accuracy. "
+        "The response is gzip-compressed for clients that send `Accept-Encoding: gzip`."
     ),
     "responses": {
         200: ok("A page of field outlines.", {
@@ -115,7 +118,7 @@ FIELDS = {
 
 BBOX_DESCRIPTION = ("Visible map area as `west,south,east,north` in degrees. "
                     "If omitted, defaults to the Orillia, Ontario area.")
-LIMIT_DESCRIPTION = "Maximum features per page (1–2000)."
+LIMIT_DESCRIPTION = "Maximum features per page (1–2000, default 50). Map clients usually ask for more per request."
 CURSOR_DESCRIPTION = "`nextCursor` from the previous page. Use 0 for the first page, and keep the same bbox and limit."
 
 FIELD = {

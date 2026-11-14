@@ -67,8 +67,10 @@ changed routes. Route descriptions, tags and examples shown in Swagger live in
   outlines in the visible map area, without crop information. Bbox order is
   west,south,east,north. Split boxes crossing the antimeridian into two requests.
 - Follow `nextCursor` using the same bbox and limit while `hasMore` is true.
-  Pages default to 500 features, capped at 2,000. Changing the viewport resets
+  Pages default to 50 features, capped at 2,000. Changing the viewport resets
   the cursor to zero. A missing bbox defaults to the Orillia area for the database.
+- Coordinates are cut to 6 decimal places (about 0.1 m). Responses over 1 KB are
+  gzip-compressed for clients that send `Accept-Encoding: gzip`.
 - `GET /fields/{field_id}` returns estimated hectares and acres for a clicked ID.
   Unknown IDs return 404.
 - `GET /field-coverage` reports the loaded region, field count, source, licence,

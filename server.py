@@ -1,6 +1,7 @@
 """Field selection and environmental summary API. Swagger UI is served at /docs."""
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 from pathlib import Path
@@ -8,7 +9,7 @@ from pathlib import Path
 import requests
 from fastapi import FastAPI, HTTPException, Query
 from fastapi import Path as PathParam
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 
 import api_docs as docs
 import field_store
@@ -19,6 +20,8 @@ from environmental import crops
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
+
+GEOJSON = "application/json"  # GeoJSON body; plain JSON type so every client parses it as before
 
 app = FastAPI(title="SpaceApps 2026 Data API", version=docs.VERSION, description=docs.DESCRIPTION, openapi_tags=docs.TAGS)
 middleware.install(app)
@@ -88,12 +91,12 @@ def _database() -> Path | None:
     return None
 
 
-@app.get("/fields", tags=["Fields"], **docs.FIELDS)
+@app.get("/fields", tags=["Fields"], response_class=Response, **docs.FIELDS)
 def list_fields(
     bbox: str | None = Query(None, description=docs.BBOX_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_BBOX)),
-    limit: int = Query(500, ge=1, le=2000, description=docs.LIMIT_DESCRIPTION),
+    limit: int = Query(50, ge=1, le=2000, description=docs.LIMIT_DESCRIPTION),
     cursor: int = Query(0, ge=0, description=docs.CURSOR_DESCRIPTION),
-) -> dict:
+) -> Response:
     try:
         bounds = parse_bbox(bbox) if bbox is not None else None
     except ValueError as exc:
@@ -101,14 +104,17 @@ def list_fields(
     database = _database()
     if database is not None:
         try:
-            return field_store.list_features(database, bounds or field_store.ORILLIA_BBOX, limit, cursor)
+            body = field_store.list_features(database, bounds or field_store.ORILLIA_BBOX, limit, cursor)
         except (OSError, sqlite3.Error, ValueError) as exc:
             raise HTTPException(status_code=503, detail="Field boundary database is unavailable or invalid") from exc
+        return Response(body, media_type=GEOJSON)
     features = field_map(_fields(), bounds)["features"]
     page = features[cursor:cursor + limit]
     more = len(features) > cursor + limit
-    return {"type": "FeatureCollection", "features": page, "numberReturned": len(page),
-            "hasMore": more, "nextCursor": cursor + limit if more else None}
+    body = field_store.feature_collection(
+        [field_store.compact(json.dumps(f, separators=(",", ":")).encode()) for f in page],
+        numberReturned=len(page), hasMore=more, nextCursor=cursor + limit if more else None)
+    return Response(body, media_type=GEOJSON)
 
 
 @app.get("/fields/{field_id}", tags=["Fields"], **docs.FIELD)

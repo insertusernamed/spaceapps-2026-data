@@ -1,4 +1,4 @@
-"""Opt-in cross-origin access for browser front ends, and a request ID on every response."""
+"""Request IDs, gzip compression and opt-in cross-origin access for every response."""
 from __future__ import annotations
 
 import logging
@@ -9,6 +9,7 @@ import uuid
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 REQUEST_ID_HEADER = "X-Request-Id"
 # Matched when CORS_ORIGINS includes the word "localhost": any port on this machine.
@@ -59,6 +60,8 @@ class RequestIdMiddleware:
 
 def install(app: FastAPI) -> None:
     app.add_middleware(RequestIdMiddleware)
+    # Level 5 compresses map pages about 4x at a fraction of level 9's cost.
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=5)
     origins = cors_origins(os.environ.get("CORS_ORIGINS"))
     if not origins:
         return  # CORS is off: browsers on other origins are refused, same-origin and server calls work.
