@@ -45,6 +45,11 @@ class ErrorResponse(BaseModel):
     detail: str
 
 
+def sample(value, summary: str = "Example") -> dict:
+    """A parameter example that Swagger UI fills in for Try it out."""
+    return {"default": {"summary": summary, "value": value}}
+
+
 def error(description: str, example: str) -> dict:
     return {"model": ErrorResponse, "description": description,
             "content": {"application/json": {"example": {"detail": example}}}}

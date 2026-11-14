@@ -48,10 +48,10 @@ def ready() -> JSONResponse:
 
 @app.get("/daily-point", tags=["Environment"], **docs.DAILY_POINT)
 def daily_point(
-    lat: float = Query(..., ge=-90, le=90, description="Latitude in degrees.", examples=[44.6]),
-    lon: float = Query(..., ge=-180, le=180, description="Longitude in degrees.", examples=[-79.42]),
-    start: str = Query(..., pattern=r"^\d{8}$", description="First day, YYYYMMDD.", examples=["20240101"]),
-    end: str = Query(..., pattern=r"^\d{8}$", description="Last day, YYYYMMDD.", examples=["20240107"]),
+    lat: float = Query(..., ge=-90, le=90, description="Latitude in degrees.", openapi_examples=docs.sample(44.6)),
+    lon: float = Query(..., ge=-180, le=180, description="Longitude in degrees.", openapi_examples=docs.sample(-79.42)),
+    start: str = Query(..., pattern=r"^\d{8}$", description="First day, YYYYMMDD.", openapi_examples=docs.sample("20240101")),
+    end: str = Query(..., pattern=r"^\d{8}$", description="Last day, YYYYMMDD.", openapi_examples=docs.sample("20240107")),
     parameters: str = Query("T2M,PRECTOTCORR", description="Comma-separated NASA POWER variable codes."),
 ) -> dict:
     try:
@@ -86,7 +86,7 @@ def _database() -> Path | None:
 
 @app.get("/fields", tags=["Fields"], **docs.FIELDS)
 def list_fields(
-    bbox: str | None = Query(None, description=docs.BBOX_DESCRIPTION, examples=[docs.EXAMPLE_BBOX]),
+    bbox: str | None = Query(None, description=docs.BBOX_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_BBOX)),
     limit: int = Query(500, ge=1, le=2000, description=docs.LIMIT_DESCRIPTION),
     cursor: int = Query(0, ge=0, description=docs.CURSOR_DESCRIPTION),
 ) -> dict:
@@ -108,7 +108,7 @@ def list_fields(
 
 
 @app.get("/fields/{field_id}", tags=["Fields"], **docs.FIELD)
-def selected_field(field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, examples=[docs.EXAMPLE_FIELD_ID])) -> dict:
+def selected_field(field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID))) -> dict:
     database = _database()
     if database is not None:
         try:
