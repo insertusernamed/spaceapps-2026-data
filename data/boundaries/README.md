@@ -12,3 +12,13 @@ ADM1 simplified GeoJSON, release commit `41af8f1`.
 The simplified boundary is used as a spatial filter, preserving entire fields
 that intersect Ontario. Fields crossing the provincial border remain whole;
 this is not a cadastral or jurisdiction determination.
+
+## Country masks for North American acquisition
+
+`can.geojson`, `usa.geojson`, and `mex.geojson` are simplified geoBoundaries gbOpen
+ADM0 exports. Their adjacent `.source.json` files record pinned download URLs,
+upstream sources, and licences. Attribution: geoBoundaries and the listed
+upstream contributors. Canada uses OpenStreetMap/Wambacher boundaries under
+ODbL 1.0; the US uses Census Bureau boundaries in the public domain; Mexico uses
+geoBoundaries/World Bank boundaries under CC-BY-4.0. These are spatial selection
+masks; complete field geometries are preserved at country edges.

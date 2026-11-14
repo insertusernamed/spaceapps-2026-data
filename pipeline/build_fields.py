@@ -46,6 +46,7 @@ def build(region, output):
     }
 
     def save_metadata():
+        metadata["fieldCount"] = db.execute("SELECT count(*) FROM fields").fetchone()[0]
         db.executemany(
             "INSERT OR REPLACE INTO metadata VALUES (?,?)",
             [(k, json.dumps(v)) for k, v in metadata.items()],

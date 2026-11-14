@@ -1,0 +1,6 @@
+{
+  "boundaryLicense": "Creative Commons Attribution 4.0 (CC BY 4.0)",
+  "boundarySource": "geoBoundaries, World Bank",
+  "boundarySourceURL": "datacatalog.worldbank.org/dataset/mexico-municipalities-2012",
+  "simplifiedGeometryGeoJSON": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/MEX/ADM0/geoBoundaries-MEX-ADM0_simplified.geojson"
+}

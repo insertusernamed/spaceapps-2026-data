@@ -1,0 +1,6 @@
+{
+  "boundaryLicense": "Public Domain",
+  "boundarySource": "United States Census Bureau, MAF/TIGER Database",
+  "boundarySourceURL": "www.census.gov/geographies/mapping-files/time-series/geo/carto-boundary-file.html",
+  "simplifiedGeometryGeoJSON": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/USA/ADM0/geoBoundaries-USA-ADM0_simplified.geojson"
+}

@@ -148,3 +148,53 @@ a weather provider failure returns 502. First requests depend on upstream latenc
 
 Install test dependencies with `pip install -r requirements-dev.txt`, then run
 `python -m unittest discover tests -v`.
+
+## Background North American acquisition
+
+Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.
+Start or resume the detached worker:
+
+```sh
+python pipeline/north_america.py start
+python pipeline/north_america.py status
+python pipeline/north_america.py stop
+```
+
+The queue covers Canada, the United States and Mexico, beginning with Eastern
+Canada, the Canadian Prairies, and the US Great Lakes/Midwest. Remaining areas
+follow, including northern Canada, Alaska and Hawaii. Other North American
+countries/territories are outside this queue. These are predicted field units;
+completing the queue does not establish an exhaustive registry of farms.
+
+The worker imports small geographic tiles into the same database while the API
+continues serving already-loaded fields. New outlines are compressed; existing
+Ontario rows remain readable. Completed tiles are checkpointed, IDs deduplicated,
+and temporary downloads removed after import. Restarting retries incomplete or
+failed tiles. Source downloads retry three times before recording a tile error
+and continuing. `/field-coverage` exposes live counts and ingestion progress;
+`data/background/status.json` and `data/background/worker.log` contain local detail.
+A `completed_with_errors` status requires another run to retry failed areas.
+
+Defaults retain **12 GiB of free disk space** and pause at a **30 GiB database
+budget**. A `paused_disk` job requires freeing space or explicitly changing these
+limits before running `start` again. Acquisition progress is retained. Stop is
+graceful after the current download/batch. This is a local background process;
+it survives closing its launching terminal, but must be started again after a
+reboot. On macOS it prevents idle sleep while running; closing the laptop or
+powering it off can still interrupt work.
+
+### Importing on a separate API host
+
+Set `FIELDS_DB` to the persistent SQLite path and `FIELD_INGEST_DIR` to a persistent
+worker directory before starting the importer. The API's `FIELDS_DB` must refer
+to that same database (using its container mount path if containerized). Mount the
+whole data directory so SQLite WAL/SHM files are shared, and run the API and importer
+with compatible file ownership. The API serves new committed fields immediately.
+A Git clone alone contains the preview and source code, not the full dataset.
+
+On the current Linux host, persistent field data is stored under
+`/mnt/5tb_drive/spaceapps-2026/data/`, separate from the small system disk.
+The background service is `spaceapps-field-import.service` in the user's systemd
+manager. It uses a 50 GiB free-space reserve and a 250 GiB database budget.
+Check it with `systemctl --user status spaceapps-field-import.service`, and inspect
+live API ingestion status at `/field-coverage`.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import zlib
 from contextlib import closing
 from pathlib import Path
 
@@ -29,7 +30,14 @@ def add_feature(connection, feature, hectares, score=None):
     fid = feature["id"]
     cursor = connection.execute(
         "INSERT INTO fields(id,feature,hectares,score) VALUES (?,?,?,?) ON CONFLICT(id) DO NOTHING",
-        (fid, json.dumps(feature, separators=(",", ":")), hectares, score),
+        (
+            fid,
+            sqlite3.Binary(
+                zlib.compress(json.dumps(feature, separators=(",", ":")).encode())
+            ),
+            hectares,
+            score,
+        ),
     )
     if cursor.rowcount:
         west, south, east, north = feature["bbox"]
@@ -37,6 +45,7 @@ def add_feature(connection, feature, hectares, score=None):
             "INSERT INTO bounds VALUES (?,?,?,?,?)",
             (cursor.lastrowid, west, east, south, north),
         )
+    return bool(cursor.rowcount)
 
 
 def list_features(path: Path, bbox, limit=500, cursor=0):
@@ -50,7 +59,10 @@ def list_features(path: Path, bbox, limit=500, cursor=0):
         ).fetchall()
     return {
         "type": "FeatureCollection",
-        "features": [json.loads(row[1]) for row in rows[:limit]],
+        "features": [
+            json.loads(zlib.decompress(row[1]) if isinstance(row[1], bytes) else row[1])
+            for row in rows[:limit]
+        ],
         "numberReturned": min(len(rows), limit),
         "hasMore": len(rows) > limit,
         "nextCursor": rows[limit - 1][0] if len(rows) > limit else None,
@@ -78,5 +90,7 @@ def coverage(path: Path):
             key: json.loads(value)
             for key, value in db.execute("SELECT key,value FROM metadata")
         }
-        metadata["fields"] = db.execute("SELECT count(*) FROM fields").fetchone()[0]
+        metadata["fields"] = metadata.get("fieldCount")
+        if metadata["fields"] is None:
+            metadata["fields"] = db.execute("SELECT count(*) FROM fields").fetchone()[0]
     return metadata

@@ -1,0 +1,6 @@
+{
+  "boundaryLicense": "Open Data Commons Open Database License 1.0",
+  "boundarySource": "OpenStreetMap, Wambacher",
+  "boundarySourceURL": "wambachers-osm.website/boundaries/",
+  "simplifiedGeometryGeoJSON": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/CAN/ADM0/geoBoundaries-CAN-ADM0_simplified.geojson"
+}
