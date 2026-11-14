@@ -272,3 +272,28 @@ CROP_HISTORY = {
         502: CROP_PROVIDER_ERROR,
     },
 }
+
+CROP_HISTORY_BATCH = {
+    "summary": "Crop history of several fields",
+    "description": (
+        "Crop history for up to 100 fields from `/fields` in one request, for example a box selection on the map. "
+        "Outlines are read in one lookup and fields are processed in parallel, while the server keeps a fixed limit "
+        "on requests to the crop map services. Cached fields return immediately; new ones take about a second each, "
+        "shared across the batch.\n\n"
+        "`results` follows the order of `ids`, with duplicates answered once. Each entry has `status` `ok` with the same "
+        "`history` as `GET /fields/{field_id}/crop-history`, or `error` with an HTTP-style `code` and `detail`: 404 for "
+        "an unknown ID, 502 when a crop map service failed for that field. A failed field never fails the others, so the "
+        "response is 200 whenever the request itself is valid; check `failed`.\n\n" + CROP_HISTORY_TEXT
+    ),
+    "responses": {
+        200: ok("One result per requested field (example history trimmed to two years).", {
+            "results": [
+                {"id": EXAMPLE_FIELD_ID, "status": "ok", "history": _CROP_EXAMPLE},
+                {"id": "ftw-2025-17TPK_0_0-0", "status": "error", "error": {"code": 404, "detail": "Field not found"}},
+            ],
+            "requested": 2, "succeeded": 1, "failed": 1,
+        }),
+        422: {"description": "No IDs, more than 100 IDs, an empty ID, or an unknown request property."},
+        503: FIELDS_UNAVAILABLE,
+    },
+}

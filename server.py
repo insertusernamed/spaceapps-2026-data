@@ -16,7 +16,7 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import CropHistoryRequest
+from crop_history import CropHistoryRequest, FieldCropHistoryBatchRequest
 from environmental import crops
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
@@ -189,6 +189,36 @@ def _crop_history(polygon) -> dict:
         return crops.history(polygon)
     except DataError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+def _field_geometries(field_ids: list[str]) -> dict[str, dict]:
+    database = _database()
+    if database is not None:
+        try:
+            found = field_store.features(database, field_ids)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Field boundary database is unavailable or invalid") from exc
+    else:
+        loaded = _fields()
+        found = {fid: loaded[fid] for fid in field_ids if fid in loaded}
+    return {fid: feature["geometry"] for fid, feature in found.items()}
+
+
+@app.post("/fields/crop-history", tags=["Crops"], **docs.CROP_HISTORY_BATCH)
+def fields_crop_history(request: FieldCropHistoryBatchRequest) -> dict:
+    polygons = _field_geometries(request.ids)
+    histories = crops.history_many(polygons)
+    results = []
+    for fid in request.ids:
+        outcome = histories.get(fid)
+        if outcome is None:
+            results.append({"id": fid, "status": "error", "error": {"code": 404, "detail": "Field not found"}})
+        elif isinstance(outcome, DataError):
+            results.append({"id": fid, "status": "error", "error": {"code": outcome.status, "detail": str(outcome)}})
+        else:
+            results.append({"id": fid, "status": "ok", "history": outcome})
+    succeeded = sum(r["status"] == "ok" for r in results)
+    return {"results": results, "requested": len(results), "succeeded": succeeded, "failed": len(results) - succeeded}
 
 
 @app.get("/fields/{field_id}/crop-history", tags=["Crops"], **docs.CROP_HISTORY_FIELD)

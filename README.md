@@ -291,6 +291,14 @@ misclassified, especially at field edges. Locations outside Canada and the Unite
 States, including Mexico, return no years. Legends are in
 `environmental/crop_classes.py`.
 
+For several fields at once (for example a box selection), `POST /fields/crop-history`
+with `{"ids": [...]}` accepts up to 100 field IDs. Outlines are read in one query
+and fields run in parallel, while the service keeps at most 8 requests in flight to
+the crop map services across all callers. `results` follows the order of `ids`
+(duplicates answered once); each entry has `status: ok` with its `history`, or
+`status: error` with a `code` (404 unknown ID, 502 provider failure) and `detail`.
+One failed field never fails the batch, so a valid request returns 200; check `failed`.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.

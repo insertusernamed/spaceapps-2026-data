@@ -126,6 +126,16 @@ def feature(path: Path, field_id):
     return json.loads(zlib.decompress(row[0]) if isinstance(row[0], bytes) else row[0])
 
 
+def features(path: Path, field_ids: list[str]) -> dict[str, dict]:
+    """Stored GeoJSON features for several IDs in one query; unknown IDs are absent."""
+    if not field_ids:
+        return {}
+    marks = ",".join("?" * len(field_ids))
+    with connect(path) as db:
+        rows = db.execute(f"SELECT id, feature FROM fields WHERE id IN ({marks})", field_ids).fetchall()
+    return {fid: json.loads(zlib.decompress(raw) if isinstance(raw, bytes) else raw) for fid, raw in rows}
+
+
 def selected(path: Path, field_id):
     with connect(path) as db:
         row = db.execute(

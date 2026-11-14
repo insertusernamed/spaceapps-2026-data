@@ -26,12 +26,15 @@ from .crop_classes import ACI_CLASSES, ACI_NOT_CROPS, CDL_CLASSES, CDL_NOT_CROPS
 from .errors import ProviderError
 
 TIMEOUT = (10, 30)
-PARALLEL = 8
+PARALLEL = 8  # years fetched at once for one field
+FIELD_PARALLEL = 4  # fields processed at once in a batch
+UPSTREAM_LIMIT = 8  # requests in flight to the crop map services, across all callers
 MIN_SHARE = 0.01
 MAX_CLASSES = 5
 YEARS_TTL_S = 24 * 3600
 
 _session = requests.Session()
+_upstream = threading.BoundedSemaphore(UPSTREAM_LIMIT)
 
 
 @dataclass(frozen=True, eq=False)  # hashed by identity, for the result cache
@@ -83,7 +86,8 @@ CDL_QUERY_URL = "https://pdi.scinet.usda.gov/image/rest/services/CDL_WM/ImageSer
 
 def _get_json(provider: str, method: str, url: str, **kwargs) -> dict:
     try:
-        resp = _session.request(method, url, timeout=TIMEOUT, **kwargs)
+        with _upstream:  # keep batches and concurrent users from flooding the providers
+            resp = _session.request(method, url, timeout=TIMEOUT, **kwargs)
         resp.raise_for_status()
         body = resp.json()
     except (requests.RequestException, ValueError) as exc:
@@ -244,3 +248,20 @@ def _result(source: Source | None, rows: list[dict], missing: list[int], note: s
         "unavailableYears": sorted(missing),
         "note": note,
     }
+
+
+def history_many(polygons: dict[str, object]) -> dict[str, dict | ProviderError]:
+    """Crop history for several outlines at once, keyed like the input.
+
+    A provider failure for one field is returned as its ProviderError instead of
+    failing the others. Upstream requests stay within UPSTREAM_LIMIT overall.
+    """
+    def one(item):
+        key, polygon = item
+        try:
+            return key, history(polygon)
+        except ProviderError as exc:
+            return key, exc
+
+    with ThreadPoolExecutor(max_workers=FIELD_PARALLEL) as pool:
+        return dict(pool.map(one, polygons.items()))

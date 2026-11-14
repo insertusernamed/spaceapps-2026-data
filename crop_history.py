@@ -1,9 +1,9 @@
 """Request model for crop history by outline; the lookups live in environmental.crops."""
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from environmental import geometry
 from environmental.errors import DataError
@@ -31,3 +31,21 @@ class CropHistoryRequest(BaseModel):
         except (DataError, TypeError, IndexError, KeyError) as exc:
             raise ValueError(str(exc)) from exc
         return value
+
+
+MAX_BATCH_FIELDS = 100
+FieldId = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class FieldCropHistoryBatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{
+        "ids": ["ftw-2025-17TPK_0_0-13020", "ftw-2025-17TPK_0_0-3837"]}]})
+    ids: list[FieldId] = Field(
+        min_length=1, max_length=MAX_BATCH_FIELDS,
+        description=f"Field IDs from /fields, 1 to {MAX_BATCH_FIELDS}. Duplicates are answered once, in first-seen order.",
+    )
+
+    @field_validator("ids")
+    @classmethod
+    def unique(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(value))
