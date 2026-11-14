@@ -285,6 +285,13 @@ Use the product's required citation when publishing results.
 year; `POST /crop-history` with `{"polygon": ...}` does the same for any outline.
 Each year reports the class covering most of the field, its share (0–1), and up
 to five classes covering at least 1%. `rotation` lists the main class per year.
+`summary` turns this into plain language for display: the last mapped season, the
+rotation pattern in words (stable, alternating, a 2-3 year rotation, changed, or
+mixed), the crop the pattern points to this year with a confidence and reason
+(an estimate; null without a clear pattern), and flags for outlines that may
+cover several fields or mostly non-crop land. Each year also carries a `group`
+shared by both countries and the share of the field under crops; cloud pixels
+are excluded from all shares.
 
 Canada uses the AAFC Annual Crop Inventory (Ontario from 2011, other provinces
 from 2009); the United States uses the USDA NASS Cropland Data Layer (from 2008).
