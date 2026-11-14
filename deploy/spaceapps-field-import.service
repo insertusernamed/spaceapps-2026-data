@@ -7,7 +7,7 @@ Type=simple
 WorkingDirectory=%h/Documents/GitHub/spaceapps-2026-data
 Environment=FIELDS_DB=/mnt/5tb_drive/spaceapps-2026/data/fields.sqlite
 Environment=FIELD_INGEST_DIR=/mnt/5tb_drive/spaceapps-2026/data/background
-ExecStart=/mnt/5tb_drive/spaceapps-2026/ingest-venv/bin/python %h/Documents/GitHub/spaceapps-2026-data/pipeline/north_america.py worker --min-free-gb 50 --max-database-gb 250
+ExecStart=%h/.venvs/spaceapps-ingest/bin/python %h/Documents/GitHub/spaceapps-2026-data/pipeline/north_america.py worker --min-free-gb 50 --max-database-gb 250
 Restart=on-failure
 RestartSec=30
 TimeoutStopSec=180
