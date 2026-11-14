@@ -311,3 +311,65 @@ CROP_HISTORY_BATCH = {
         503: FIELDS_UNAVAILABLE,
     },
 }
+
+GREENNESS_YEAR_DESCRIPTION = ("Growing season year, 2017 to this year. Defaults to the most recent season: this year from May, "
+                              "otherwise last year.")
+
+GREENNESS_TEXT = (
+    "One entry per clear Sentinel-2 overpass (about every 2–5 days; fewer when cloudy): the field's mean NDVI and its "
+    "10th and 90th percentiles across the field's 10 m pixels, with the share of the field that was clear. NDVI is the "
+    "standard greenness index: about 0.1–0.2 for bare soil, 0.6–0.9 for a full crop canopy, falling again at maturity "
+    "and harvest. A wide p10–p90 spread means an uneven field.\n\n"
+    "**Season:** April 1 to November 15 (October 1 to May 15 south of the equator), up to today for the current year. "
+    "An overpass counts when at least half the field is clear; cloud, shadow, snow and water pixels are removed.\n\n"
+    "**Summary:** `peakNdvi` and `peakDate`, `latestNdvi` and `latestDate`, and `greenUpDate`, the first overpass halfway "
+    "from the spring low to the peak (null when the season varies by less than 0.2, for example permanent grass).\n\n"
+    "**Speed:** the first request for a field and season reads about 20–30 satellite scenes and takes about 10 seconds; "
+    "repeats return at once (finished seasons are kept, the current one is refreshed every 6 hours). Show a loading "
+    "state.\n\n"
+    "**Source:** Copernicus Sentinel-2 L2A from Earth Search, no account. Collection 1 is used where available; seasons "
+    "it lacks (2017, 2022) come from the original collection, named in `source.collection`."
+)
+
+_GREENNESS_EXAMPLE = {
+    "year": 2025,
+    "period": {"start": "2025-04-01", "end": "2025-11-14"},
+    "observations": [
+        {"date": "2025-07-14", "ndvi": 0.59, "ndviP10": 0.41, "ndviP90": 0.72, "clearShare": 1.0},
+        {"date": "2025-08-30", "ndvi": 0.78, "ndviP10": 0.69, "ndviP90": 0.85, "clearShare": 1.0},
+    ],
+    "summary": {"peakNdvi": 0.78, "peakDate": "2025-08-30", "latestNdvi": 0.208, "latestDate": "2025-11-06",
+                "greenUpDate": "2025-07-14"},
+    "scenesChecked": 28,
+    "scenesUnreadable": 0,
+    "source": {"name": "Copernicus Sentinel-2 L2A via Earth Search", "collection": "sentinel-2-c1-l2a",
+               "url": "https://earth-search.aws.element84.com/v1/search", "resolutionM": 10,
+               "license": "Copernicus Sentinel data, free and open"},
+    "note": "Mean NDVI over the clear part of the field per overpass; an overpass counts when at least half of the field is clear.",
+}
+
+GREENNESS_PROVIDER_ERROR = error("The Sentinel-2 catalogue or imagery could not be reached.",
+                                 "Earth Search (Sentinel-2 catalogue) is unavailable")
+
+GREENNESS_FIELD = {
+    "summary": "Greenness of a field through a season",
+    "description": "Sentinel-2 NDVI through one growing season for a field from `/fields`.\n\n" + GREENNESS_TEXT,
+    "responses": {
+        200: ok("Clear-sky NDVI observations and a season summary (example trimmed to two overpasses).",
+                {"id": EXAMPLE_FIELD_ID, **_GREENNESS_EXAMPLE}),
+        404: error("No field has this ID in the loaded data.", "Field not found"),
+        422: {"description": "Year outside 2017 to this year."},
+        502: GREENNESS_PROVIDER_ERROR,
+        503: FIELDS_UNAVAILABLE,
+    },
+}
+
+GREENNESS = {
+    "summary": "Greenness of any outline through a season",
+    "description": "Sentinel-2 NDVI through one growing season inside any outline.\n\n" + GREENNESS_TEXT,
+    "responses": {
+        200: ok("Clear-sky NDVI observations and a season summary (example trimmed to two overpasses).", _GREENNESS_EXAMPLE),
+        422: {"description": "Invalid polygon, year outside 2017 to this year, or unknown request property."},
+        502: GREENNESS_PROVIDER_ERROR,
+    },
+}

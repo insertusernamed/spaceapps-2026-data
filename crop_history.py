@@ -1,4 +1,4 @@
-"""Request model for crop history by outline; the lookups live in environmental.crops."""
+"""Request models for outline-based routes (crop history, greenness); the lookups live in environmental."""
 from __future__ import annotations
 
 from typing import Annotated, Any
@@ -49,3 +49,16 @@ class FieldCropHistoryBatchRequest(BaseModel):
     @classmethod
     def unique(cls, value: list[str]) -> list[str]:
         return list(dict.fromkeys(value))
+
+
+class GreennessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"polygon": EXAMPLE_POLYGON, "year": 2024}]})
+    polygon: dict[str, Any] | list[list[float]] = Field(
+        description="GeoJSON Polygon, MultiPolygon or Feature, or a ring of [longitude, latitude] positions."
+    )
+    year: int | None = Field(default=None, description="Growing season year; defaults to the most recent season.")
+
+    @field_validator("polygon", mode="before")
+    @classmethod
+    def valid_polygon(cls, value):
+        return CropHistoryRequest.valid_polygon(value)

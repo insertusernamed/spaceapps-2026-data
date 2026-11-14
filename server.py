@@ -17,8 +17,8 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import CropHistoryRequest, FieldCropHistoryBatchRequest
-from environmental import crops
+from crop_history import CropHistoryRequest, FieldCropHistoryBatchRequest, GreennessRequest
+from environmental import crops, greenness
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -235,3 +235,26 @@ def field_crop_history(field_id: str = PathParam(description=docs.FIELD_ID_DESCR
 @app.post("/crop-history", tags=["Crops"], **docs.CROP_HISTORY)
 def crop_history(request: CropHistoryRequest) -> dict:
     return _crop_history(request.polygon)
+
+
+def _greenness(polygon, year: int | None) -> dict:
+    try:
+        return greenness.season(polygon, year)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/greenness", tags=["Crops"], **docs.GREENNESS_FIELD)
+def field_greenness(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    year: int | None = Query(None, description=docs.GREENNESS_YEAR_DESCRIPTION, openapi_examples=docs.sample(2025)),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_greenness(polygon, year)}
+
+
+@app.post("/greenness", tags=["Crops"], **docs.GREENNESS)
+def outline_greenness(request: GreennessRequest) -> dict:
+    return _greenness(request.polygon, request.year)

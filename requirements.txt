@@ -8,3 +8,4 @@ numpy>=1.23
 earthaccess>=0.16,<1
 h5py>=3.11
 pyproj>=3.6
+rasterio>=1.4,<2

@@ -304,6 +304,26 @@ the crop map services across all callers. `results` follows the order of `ids`
 `status: error` with a `code` (404 unknown ID, 502 provider failure) and `detail`.
 One failed field never fails the batch, so a valid request returns 200; check `failed`.
 
+## Field greenness
+
+`GET /fields/{field_id}/greenness?year=2025` returns how green a field was through
+one growing season, from Copernicus Sentinel-2 L2A at 10 m (Earth Search, no
+account); `POST /greenness` with `{"polygon": ..., "year": ...}` does the same for
+any outline. Each clear overpass (about every 2-5 days) gives the field's mean
+NDVI with its 10th/90th percentiles and the clear share of the field. A summary
+gives the peak, the latest value and the green-up date. Bare soil is about
+0.1-0.2 NDVI and a full canopy 0.6-0.9.
+
+The season is April 1 to November 15 (October 1 to May 15 south of the equator),
+up to today for the current year; `year` defaults to the most recent season.
+Cloud, shadow, snow and water pixels are removed, and an overpass counts when at
+least half of the field is clear. Only the pixels over the field are read from
+each cloud-optimized file, but a first request still reads 20-30 scenes and takes
+about 10 seconds; finished seasons are then cached, and the current season is
+refreshed every 6 hours. Collection 1 is used where available; seasons it lacks
+(2017, 2022) come from the original collection. Needs `rasterio`
+(in `requirements.txt`).
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.
