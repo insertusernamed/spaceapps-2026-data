@@ -21,7 +21,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install -r requirements.txt \
+# rasterio's bundled GDAL needs libexpat, which the slim image does not include.
+RUN apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends libexpat1 >/dev/null \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install -r requirements.txt \
  && useradd --system --uid 1000 --user-group --no-create-home spaceapps
 
 COPY *.py ./
