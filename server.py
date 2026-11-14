@@ -1,4 +1,4 @@
-"""HTTP wrapper around the NASA POWER client. Swagger UI is served at /docs."""
+"""Field selection and environmental summary API. Swagger UI is served at /docs."""
 from __future__ import annotations
 
 import os
@@ -7,29 +7,31 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import Path as PathParam
+from fastapi.responses import JSONResponse, RedirectResponse
 
+import api_docs as docs
 import field_store
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
 
-app = FastAPI(title="SpaceApps 2026 Data API", version="0.1")
+app = FastAPI(title="SpaceApps 2026 Data API", version=docs.VERSION, description=docs.DESCRIPTION, openapi_tags=docs.TAGS)
 
 
-@app.get("/health", summary="Liveness check")
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse("/docs")
+
+
+@app.get("/health", tags=["Service"], **docs.HEALTH)
 def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/ready", summary="Readiness check", responses={503: {"description": "Field boundary data is unavailable"}})
+@app.get("/ready", tags=["Service"], **docs.READY)
 def ready() -> JSONResponse:
-    """Report whether the configured field boundary data can be read.
-
-    Returns 200 when field routes can answer and 503 when they cannot. NASA POWER and
-    terrain providers are not contacted, so upstream outages do not affect readiness.
-    """
     database = _database()
     source = "database" if database is not None else "geojson"
     try:
@@ -44,13 +46,13 @@ def ready() -> JSONResponse:
     return JSONResponse({"ready": ok, "checks": {"fields": status, "source": source}}, status_code=200 if ok else 503)
 
 
-@app.get("/daily-point", summary="NASA POWER daily point data")
+@app.get("/daily-point", tags=["Environment"], **docs.DAILY_POINT)
 def daily_point(
-    lat: float = Query(..., ge=-90, le=90),
-    lon: float = Query(..., ge=-180, le=180),
-    start: str = Query(..., pattern=r"^\d{8}$", description="YYYYMMDD"),
-    end: str = Query(..., pattern=r"^\d{8}$", description="YYYYMMDD"),
-    parameters: str = Query("T2M,PRECTOTCORR"),
+    lat: float = Query(..., ge=-90, le=90, description="Latitude in degrees.", examples=[44.6]),
+    lon: float = Query(..., ge=-180, le=180, description="Longitude in degrees.", examples=[-79.42]),
+    start: str = Query(..., pattern=r"^\d{8}$", description="First day, YYYYMMDD.", examples=["20240101"]),
+    end: str = Query(..., pattern=r"^\d{8}$", description="Last day, YYYYMMDD.", examples=["20240107"]),
+    parameters: str = Query("T2M,PRECTOTCORR", description="Comma-separated NASA POWER variable codes."),
 ) -> dict:
     try:
         session = EarthdataSession(*load_credentials())
@@ -82,11 +84,11 @@ def _database() -> Path | None:
     return None
 
 
-@app.get("/fields", summary="Field outlines in a map viewport, with pagination")
+@app.get("/fields", tags=["Fields"], **docs.FIELDS)
 def list_fields(
-    bbox: str | None = Query(None, description="west,south,east,north; defaults to the Orillia area for indexed coverage"),
-    limit: int = Query(500, ge=1, le=2000),
-    cursor: int = Query(0, ge=0, description="nextCursor from the previous page; retain the same bbox"),
+    bbox: str | None = Query(None, description=docs.BBOX_DESCRIPTION, examples=[docs.EXAMPLE_BBOX]),
+    limit: int = Query(500, ge=1, le=2000, description=docs.LIMIT_DESCRIPTION),
+    cursor: int = Query(0, ge=0, description=docs.CURSOR_DESCRIPTION),
 ) -> dict:
     try:
         bounds = parse_bbox(bbox) if bbox is not None else None
@@ -105,8 +107,8 @@ def list_fields(
             "hasMore": more, "nextCursor": cursor + limit if more else None}
 
 
-@app.get("/fields/{field_id}", summary="Estimated hectares and acres of a selected field")
-def selected_field(field_id: str) -> dict:
+@app.get("/fields/{field_id}", tags=["Fields"], **docs.FIELD)
+def selected_field(field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, examples=[docs.EXAMPLE_FIELD_ID])) -> dict:
     database = _database()
     if database is not None:
         try:
@@ -121,7 +123,7 @@ def selected_field(field_id: str) -> dict:
     return result
 
 
-@app.get("/field-coverage", summary="Loaded field coverage, source and build status")
+@app.get("/field-coverage", tags=["Fields"], **docs.COVERAGE)
 def field_coverage() -> dict:
     database = _database()
     if database is not None:
@@ -137,7 +139,7 @@ def field_coverage() -> dict:
                 "sourceUrl": "https://source.coop/ftw/global-data-2e", "license": "CC-BY-4.0"})}
 
 
-@app.post('/field-summary', summary='Climate, water balance, frost and terrain for a selected field')
+@app.post("/field-summary", tags=["Environment"], **docs.SUMMARY)
 def field_summary(request: FieldSummaryRequest) -> dict:
     try:
         return summarize_field(request)

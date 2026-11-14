@@ -53,8 +53,10 @@ python -m unittest discover tests
 ## Field selection API
 
 Run `python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload`.
-Swagger UI: <http://127.0.0.1:8000/docs>. Python changes restart the development
-server automatically; refresh Swagger to load changed routes.
+Swagger UI: <http://127.0.0.1:8000/docs> (the root URL redirects there). Python
+changes restart the development server automatically; refresh Swagger to load
+changed routes. Route descriptions, tags and examples shown in Swagger live in
+`api_docs.py`.
 
 - `GET /health` answers 200 whenever the process is running.
 - `GET /ready` answers 200 when the configured field data can be read, and 503
