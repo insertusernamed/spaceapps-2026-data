@@ -12,12 +12,14 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 import api_docs as docs
 import field_store
+import middleware
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
 
 app = FastAPI(title="SpaceApps 2026 Data API", version=docs.VERSION, description=docs.DESCRIPTION, openapi_tags=docs.TAGS)
+middleware.install(app)
 
 
 @app.get("/", include_in_schema=False)

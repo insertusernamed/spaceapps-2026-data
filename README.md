@@ -79,6 +79,16 @@ These routes need no Earthdata credentials. Each source polygon represents a
 business. Source coverage and model errors mean this is not an exhaustive farm
 registry. IDs refer to one source edition/year and should not be matched across years.
 
+### Browser access and request IDs
+
+Browsers may call the API from any `localhost` or `127.0.0.1` port. To allow a
+deployed front end, set `CORS_ORIGINS` to a comma-separated list of origins, for
+example `CORS_ORIGINS=https://app.example.org`; `*` allows any origin.
+
+Every response carries an `X-Request-Id` header. A caller may send its own ID
+(up to 128 letters, digits or `._:-`); otherwise one is generated. Each request
+is logged with its ID, method, path, status and duration.
+
 ### Load Orillia, then Ontario
 
 The completed local build contains **4,105 Orillia-area fields** and

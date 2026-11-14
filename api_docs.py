@@ -23,6 +23,9 @@ Agricultural field outlines, field areas and environmental summaries for map-bas
 - Coordinates are WGS84 degrees. GeoJSON positions are `[longitude, latitude]`.
 - A bbox is `west,south,east,north`. Split boxes that cross the antimeridian into two requests.
 - Errors return JSON `{"detail": ...}` with a 4xx or 5xx status.
+- Every response has an `X-Request-Id` header. Send your own (up to 128 letters, digits or `._:-`)
+  to trace a request, and quote it when reporting a problem.
+- Browsers may call the API from any `localhost` port; other origins must be allowed by the server's `CORS_ORIGINS` setting.
 - Missing or unavailable values are `null`, never zero.
 
 ### What the data is
