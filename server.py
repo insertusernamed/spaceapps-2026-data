@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
 
+import field_store
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
@@ -37,6 +39,9 @@ def daily_point(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+DEFAULT_FIELDS_DB = Path(__file__).with_name("data") / "fields.sqlite"
+
+
 DEFAULT_FIELDS_FILE = Path(__file__).with_name("data") / "fields.geojson"
 
 
@@ -47,23 +52,67 @@ def _fields() -> dict:
         raise HTTPException(status_code=503, detail="Field boundary data is unavailable or invalid") from exc
 
 
-@app.get("/fields", summary="Field outlines for the map (no crop information)")
+def _database() -> Path | None:
+    if "FIELDS_DB" in os.environ:
+        return Path(os.environ["FIELDS_DB"])
+    if "FIELDS_FILE" not in os.environ and DEFAULT_FIELDS_DB.exists():
+        return DEFAULT_FIELDS_DB
+    return None
+
+
+@app.get("/fields", summary="Field outlines in a map viewport, with pagination")
 def list_fields(
-    bbox: str | None = Query(None, description="west,south,east,north in WGS84 degrees; filters by bounding-box intersection"),
+    bbox: str | None = Query(None, description="west,south,east,north; defaults to the Orillia area for indexed coverage"),
+    limit: int = Query(500, ge=1, le=2000),
+    cursor: int = Query(0, ge=0, description="nextCursor from the previous page; retain the same bbox"),
 ) -> dict:
     try:
         bounds = parse_bbox(bbox) if bbox is not None else None
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return field_map(_fields(), bounds)
+    database = _database()
+    if database is not None:
+        try:
+            return field_store.list_features(database, bounds or field_store.ORILLIA_BBOX, limit, cursor)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Field boundary database is unavailable or invalid") from exc
+    features = field_map(_fields(), bounds)["features"]
+    page = features[cursor:cursor + limit]
+    more = len(features) > cursor + limit
+    return {"type": "FeatureCollection", "features": page, "numberReturned": len(page),
+            "hasMore": more, "nextCursor": cursor + limit if more else None}
 
 
 @app.get("/fields/{field_id}", summary="Estimated hectares and acres of a selected field")
 def selected_field(field_id: str) -> dict:
-    feature = _fields().get(field_id)
-    if feature is None:
+    database = _database()
+    if database is not None:
+        try:
+            result = field_store.selected(database, field_id)
+        except (OSError, sqlite3.Error) as exc:
+            raise HTTPException(status_code=503, detail="Field boundary database is unavailable or invalid") from exc
+    else:
+        feature = _fields().get(field_id)
+        result = acreage(feature) if feature is not None else None
+    if result is None:
         raise HTTPException(status_code=404, detail="Field not found")
-    return acreage(feature)
+    return result
+
+
+@app.get("/field-coverage", summary="Loaded field coverage, source and build status")
+def field_coverage() -> dict:
+    database = _database()
+    if database is not None:
+        try:
+            return field_store.coverage(database)
+        except (OSError, sqlite3.Error, ValueError) as exc:
+            raise HTTPException(status_code=503, detail="Field boundary database is unavailable or invalid") from exc
+    return {"region": "custom GeoJSON" if "FIELDS_FILE" in os.environ else "Orillia preview",
+            "status": "sample", "fields": len(_fields()),
+            "description": "Limited sample; build the indexed Ontario dataset for province-wide coverage.",
+            **({} if "FIELDS_FILE" in os.environ else {
+                "source": "Fields of the World, Global 2nd Edition, 2025",
+                "sourceUrl": "https://source.coop/ftw/global-data-2e", "license": "CC-BY-4.0"})}
 
 
 @app.post('/field-summary', summary='Climate, water balance, frost and terrain for a selected field')

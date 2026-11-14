@@ -1,0 +1,22 @@
+{
+  "region": "ontario",
+  "status": "complete",
+  "bbox": [
+    -95.15531744199996,
+    41.681415095000034,
+    -74.34347167199996,
+    56.86170460100004
+  ],
+  "source": "Fields of the World, Global 2nd Edition, 2025",
+  "sourceUrl": "https://source.coop/ftw/global-data-2e",
+  "license": "CC-BY-4.0",
+  "description": "Predicted agricultural field units; not farm ownership parcels or an exhaustive farm registry.",
+  "builtAt": "2026-11-14T16:24:39.179325+00:00",
+  "zonesCompleted": [
+    15,
+    16,
+    17,
+    18
+  ],
+  "fields": 353809
+}

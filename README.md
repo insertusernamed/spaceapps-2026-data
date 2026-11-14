@@ -1,7 +1,8 @@
-# NASA POWER skeleton
+# SpaceApps 2026 Data API
 
-Small Python client for the NASA POWER daily point API, with Earthdata credentials
-loaded from `.env`.
+Field boundaries, acreage and environmental summaries, plus a NASA POWER daily
+point client. The standalone client loads Earthdata credentials from `.env`;
+field selection and environmental summary routes do not need them.
 
 ## Setup
 
@@ -32,28 +33,73 @@ python -m unittest discover tests
 ## Field selection API
 
 Run `python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload`.
-Swagger UI: <http://127.0.0.1:8000/docs>. The development server restarts automatically
-when Python files change; refresh Swagger to see route changes.
+Swagger UI: <http://127.0.0.1:8000/docs>. Python changes restart the development
+server automatically; refresh Swagger to load changed routes.
 
-- `GET /fields`: WGS84 GeoJSON outlines with IDs, without crop information.
-- `GET /fields?bbox=-91.96,41.34,-91.90,41.40`: filter by bounding-box intersection
-  (`west,south,east,north`). Split boxes crossing the antimeridian into two queries.
-- `GET /fields/{field_id}`: selected field's `id`, `hectares` and `acres`.
-  Use the clicked GeoJSON feature's ID. Unknown IDs return 404.
+- `GET /fields?bbox=-79.7,44.35,-79.05,44.85&limit=500` returns WGS84 field
+  outlines in the visible map area, without crop information. Bbox order is
+  west,south,east,north. Split boxes crossing the antimeridian into two requests.
+- Follow `nextCursor` using the same bbox and limit while `hasMore` is true.
+  Pages default to 500 features, capped at 2,000. Changing the viewport resets
+  the cursor to zero. A missing bbox defaults to the Orillia area for the database.
+- `GET /fields/{field_id}` returns estimated hectares and acres for a clicked ID.
+  Unknown IDs return 404.
+- `GET /field-coverage` reports the loaded region, field count, source, licence,
+  completed geographic partitions and whether acquisition is still building.
 
-These routes need no Earthdata login. Areas are spherical estimates using a mean
-Earth radius, rounded to two decimals, rather than surveyed acreage.
+These routes need no Earthdata credentials. Each source polygon represents a
+**predicted agricultural field**, not a whole farm, ownership parcel or farm
+business. Source coverage and model errors mean this is not an exhaustive farm
+registry. IDs refer to one source edition/year and should not be matched across years.
 
-Bundled coverage is **55 real sample fields in Iowa**, near -91.93, 41.37, rather
-than global coverage. See [data/README.md](data/README.md) for provenance.
-Set `FIELDS_FILE=/absolute/path/to/fields.geojson` before startup for other data.
-Use a WGS84 FeatureCollection with Polygon/MultiPolygon geometries, closed rings,
-and unique feature `id` or `properties.id` values. Holes are subtracted. Source
-properties other than ID are stripped. Missing or invalid datasets return 503.
+### Load Orillia, then Ontario
 
-This API serves GeoJSON to a map client. The existing fieldpicker component uses
-PMTiles and a separate metadata contract; these routes do not replace its static
-files. Render `/fields`, then request acreage when a field is clicked.
+The completed local build contains **4,105 Orillia-area fields** and
+**353,809 fields across Ontario** (2025 source edition, built 2026-11-14).
+These counts describe detected field units, not numbers of farm businesses.
+The full Ontario index is approximately 1.9 GB; plan for additional space for
+the downloaded extracts. See [coverage manifest](data/fields.coverage.json).
+
+A 300-field Orillia-area preview is committed for quick startup. The full spatial
+index is generated locally from public sources, rather than committed as a large
+binary. Install acquisition dependencies and build the first region:
+
+```sh
+pip install -r pipeline/requirements.txt
+python pipeline/build_fields.py orillia
+```
+
+Then expand the same database to Ontario:
+
+```sh
+python pipeline/build_fields.py ontario
+```
+
+The pipeline reads 2025 field predictions from Fields of the World, Global 2nd
+Edition. Ontario is filtered against its provincial boundary across UTM zones
+15–18, preserving complete intersecting field outlines. Invalid/empty geometries
+are excluded. Previously imported IDs are deduplicated. Completed remote extracts
+are reused on rerun; `/field-coverage` distinguishes a partial build from completion.
+The Orillia region is a surrounding agricultural area, bbox
+`[-79.7,44.35,-79.05,44.85]`, rather than just city limits.
+
+The API automatically uses `data/fields.sqlite` when present. SQLite RTree queries
+read only matching outlines rather than loading the province into Python memory.
+`FIELDS_DB=/absolute/path/fields.sqlite` selects another index. A server restart
+is not needed after a build. Keep the database unchanged while traversing pages;
+a rebuild can change pagination positions.
+
+For a custom small dataset, `FIELDS_FILE=/absolute/path/fields.geojson` overrides
+the default database (an explicit `FIELDS_DB` takes precedence). Use a WGS84
+FeatureCollection of closed Polygon/MultiPolygon features with unique feature
+`id` or `properties.id`. The GeoJSON adapter strips all properties except ID;
+the indexed source additionally exposes its `score` (0–100 mean model score,
+not a calibrated probability). Missing/invalid configured data returns 503.
+
+Area is estimated from complete outlines, subtracting holes, and rounded to two
+decimals; it is not surveyed acreage. Source, licence and limitations are documented
+in [data/README.md](data/README.md). The API serves GeoJSON; a PMTiles client needs
+its own static tile contract. Fetch each viewport, then request acreage on click.
 
 ## Field environmental summary
 

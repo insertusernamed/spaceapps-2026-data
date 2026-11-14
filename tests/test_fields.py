@@ -52,7 +52,7 @@ class TestFields(unittest.TestCase):
 
     def test_bundled_data(self):
         dataset = fields.load_fields(server.DEFAULT_FIELDS_FILE)
-        self.assertEqual(len(dataset), 55)
+        self.assertEqual(len(dataset), 300)
         for feature in dataset.values():
             self.assertGreater(fields.acreage(feature)['hectares'], 0)
             self.assertEqual(set(feature['properties']), {'id'})

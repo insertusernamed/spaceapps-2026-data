@@ -1,0 +1,19 @@
+{
+  "region": "orillia",
+  "status": "complete",
+  "bbox": [
+    -79.7,
+    44.35,
+    -79.05,
+    44.85
+  ],
+  "source": "Fields of the World, Global 2nd Edition, 2025",
+  "sourceUrl": "https://source.coop/ftw/global-data-2e",
+  "license": "CC-BY-4.0",
+  "description": "Predicted agricultural field units; not farm ownership parcels or an exhaustive farm registry.",
+  "builtAt": "2026-11-14T16:20:36.391556+00:00",
+  "zonesCompleted": [
+    17
+  ],
+  "fields": 4105
+}
