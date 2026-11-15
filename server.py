@@ -19,9 +19,9 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import (AgroWeatherRequest, CropCalendarRequest, CropHistoryRequest, FieldBatchRequest,
+from crop_history import (AgroWeatherRequest, CropCalendarRequest, CropHistoryRequest, DroughtIndicatorsRequest, FieldBatchRequest,
                           FieldSeasonRequest, GreennessRequest, ImageryRequest, SoilRequest, VegetationHistoryRequest)
-from environmental import agro_weather, crop_calendar, crops, greenness, hls, imagery, soil, vegetation_history
+from environmental import agro_weather, crop_calendar, crops, drought, greenness, hls, imagery, soil, vegetation_history
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -414,3 +414,29 @@ def field_vegetation_history(
 @app.post("/vegetation-history", tags=["Crops"], **docs.VEGETATION_HISTORY)
 def outline_vegetation_history(request: VegetationHistoryRequest) -> dict:
     return _vegetation_history(request.polygon, request.years)
+
+
+def _drought(polygon, weeks: int, years: int) -> dict:
+    try:
+        return drought.indicators(polygon, weeks, years)
+    except EarthdataError as exc:
+        raise HTTPException(status_code=503, detail="Configure EARTHDATA_USERNAME and EARTHDATA_PASSWORD on the API host to fetch GRACE data") from exc
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/drought-indicators", tags=["Environment"], **docs.DROUGHT_FIELD)
+def field_drought_indicators(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    weeks: int = Query(12, ge=1, le=52, description="Recent weeks to return."),
+    years: int = Query(10, ge=0, le=23, description="Earlier years to compare at the same time of year."),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_drought(polygon, weeks, years)}
+
+
+@app.post("/drought-indicators", tags=["Environment"], **docs.DROUGHT)
+def outline_drought_indicators(request: DroughtIndicatorsRequest) -> dict:
+    return _drought(request.polygon, request.weeks, request.years)

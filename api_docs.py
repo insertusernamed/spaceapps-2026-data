@@ -565,3 +565,35 @@ VEGETATION_HISTORY = {
     "responses": {422: {"description": "Invalid polygon, years outside 1 to 10, or unknown request property."},
                   502: VEGETATION_HISTORY_ERROR},
 }
+
+DROUGHT_TEXT = (
+    "How wet or dry the groundwater, root-zone soil moisture and surface soil moisture are around a field, from "
+    "NASA's GRACE and GRACE-FO drought indicators (global, 0.25 degrees, weekly).\n\n"
+    "Each value is a percentile against the same time of year over 1948-2012: 50 is typical, 10 is drier than nine "
+    "years in ten. `latest` gives the newest week with a plain-language `condition` for each layer (`exceptionally "
+    "dry` up to the 2nd percentile, then `extremely`, `severely`, `moderately` and `abnormally dry` up to the 5th, "
+    "10th, 20th and 30th, `normal` to the 70th, `wetter than normal` to the 90th, `much wetter than normal` above); "
+    "`conditions` lists these limits. `weekly` is the last `weeks` weeks and `sameWeekByYear` is the same time of "
+    "year in each of the last `years` years, for the longer trend.\n\n"
+    "**Limits:** cells are about 25 km, so this is the district's water, not one field. The newest week is usually "
+    "about two months old (`latest.ageDays`). Values are `null` over ocean and ice and south of 60 degrees south.\n\n"
+    "**Speed:** weekly files (about 2 MB each, whole world) are downloaded with the server's NASA Earthdata login "
+    "the first time they are needed, about 20 seconds for the defaults; after that any field answers at once."
+)
+DROUGHT_ERROR = error("NASA's catalogue or files could not be reached.",
+                      "NASA GRACE drought indicator catalogue is unavailable")
+DROUGHT_CREDENTIALS = error("Earthdata credentials are not configured on the server.",
+                            "Configure EARTHDATA_USERNAME and EARTHDATA_PASSWORD on the API host to fetch GRACE data")
+DROUGHT_FIELD = {
+    "summary": "Groundwater and soil moisture percentiles around a field",
+    "description": DROUGHT_TEXT,
+    "responses": {404: error("No field has this ID in the loaded data.", "Field not found"),
+                  422: {"description": "weeks outside 1 to 52 or years outside 0 to 23."},
+                  502: DROUGHT_ERROR, 503: DROUGHT_CREDENTIALS},
+}
+DROUGHT = {
+    "summary": "Groundwater and soil moisture percentiles around any outline",
+    "description": DROUGHT_TEXT,
+    "responses": {422: {"description": "Invalid polygon, weeks or years out of range, or unknown request property."},
+                  502: DROUGHT_ERROR, 503: DROUGHT_CREDENTIALS},
+}

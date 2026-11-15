@@ -474,6 +474,17 @@ brown-down and the date ranges that usually have little green cover; plus yearly
 read as cloud-optimized images from Microsoft Planetary Computer with no account. The first request takes
 about 30 seconds for 5 years; repeats are cached for 12 hours.
 
+## Drought indicators (NASA GRACE and GRACE-FO)
+
+```sh
+curl 'http://127.0.0.1:8000/fields/<field_id>/drought-indicators?weeks=12&years=10'
+```
+
+Weekly groundwater, root-zone and surface soil moisture percentiles against 1948-2012, at 0.25 degrees, with
+the same time of year in earlier years. Also at `POST /drought-indicators`. Needs the Earthdata login used
+for SMAP. Weekly global files (about 3 MB each) are downloaded on first use into `GRACE_DIR` (default
+`data/grace`); after that any field answers at once. The newest week is usually about two months old.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.

@@ -138,3 +138,18 @@ class VegetationHistoryRequest(BaseModel):
     @classmethod
     def valid_polygon(cls, value):
         return CropHistoryRequest.valid_polygon(value)
+
+
+class DroughtIndicatorsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
+        {"polygon": EXAMPLE_POLYGON, "weeks": 12, "years": 10}]})
+    polygon: dict[str, Any] | list[list[float]] = Field(
+        description="GeoJSON Polygon, MultiPolygon or Feature, or a ring of [longitude, latitude] positions."
+    )
+    weeks: int = Field(default=12, ge=1, le=52, description="Recent weeks to return.")
+    years: int = Field(default=10, ge=0, le=23, description="Earlier years to compare at the same time of year.")
+
+    @field_validator("polygon", mode="before")
+    @classmethod
+    def valid_polygon(cls, value):
+        return CropHistoryRequest.valid_polygon(value)
