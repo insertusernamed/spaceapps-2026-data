@@ -1,7 +1,8 @@
 """Request models for field and outline routes (crop history, greenness, soil); the lookups live in environmental."""
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
@@ -31,6 +32,14 @@ class CropHistoryRequest(BaseModel):
         except (DataError, TypeError, IndexError, KeyError) as exc:
             raise ValueError(str(exc)) from exc
         return value
+
+
+class ImageryRequest(CropHistoryRequest):
+    dataset: Literal["hls", "sentinel-2"] = "hls"
+    start: date | None = None
+    end: date | None = None
+    maxCloud: float = Field(default=30, ge=0, le=100)
+    limit: int = Field(default=6, ge=1, le=20)
 
 
 MAX_BATCH_FIELDS = 100

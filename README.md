@@ -6,6 +6,29 @@ field selection and environmental summary routes do not need them.
 
 ## Setup
 
+### Windows (PowerShell)
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -r pipeline/requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open <http://127.0.0.1:8000/docs>. The API serves the committed 300-field
+preview without credentials or additional downloads. Using the virtual
+environment's Python directly avoids PowerShell activation-policy changes.
+Stop the server with Ctrl+C.
+
+Run the tests with `.\.venv\Scripts\python.exe -m unittest discover tests`.
+For NASA login and SMAP features, run
+`.\.venv\Scripts\python.exe app.py init-env` to save your Earthdata credentials.
+
+The background North American importer currently requires Unix's `fcntl` module;
+run that worker on Linux or WSL. On Windows, the test suite also has known
+failures involving Unix file permissions and cleanup of a locked soil raster.
+
+### macOS / Linux
+
 ```sh
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -310,6 +333,62 @@ the crop map services across all callers. `results` follows the order of `ids`
 (duplicates answered once); each entry has `status: ok` with its `history`, or
 `status: error` with a `code` (404 unknown ID, 502 provider failure) and `detail`.
 One failed field never fails the batch, so a valid request returns 200; check `failed`.
+
+## NASA HLS v2 field imagery
+
+For frontend display, use an `images[].imageUrl` returned by the imagery routes
+as the image source. These links return images cropped to the field bounding box.
+
+`GET /fields/{field_id}/imagery` returns NASA Harmonized Landsat Sentinel-2
+v2.0 RGB image links from both L30 and S30 collections via Microsoft Planetary Computer. No credentials or new
+dependencies are needed. For example:
+
+```text
+/fields/ftw-2025-17TPK_0_0-13020/imagery?start=2025-06-01&end=2025-09-01&maxCloud=30&limit=6
+```
+
+For a drawn outline, use `POST /imagery` with `{"polygon": ...}` and optional
+`start`, `end`, `maxCloud`, `limit` and `dataset` properties.
+`dataset` defaults to `hls` (30 m); use `dataset=sentinel-2` on GET requests or
+`"dataset": "sentinel-2"` in POST bodies for native Sentinel-2 RGB at 10 m. The polygon accepts the same
+formats as `/crop-history`. Both routes are available in Swagger at `/docs`.
+
+Each entry in `images` includes `imageUrl` (a directly displayable PNG),
+`datetime`, `sceneId`, `collection`, `platform`, `sceneCloudCoverPct`, and `sceneUrl` (STAC
+metadata). The response includes the requested crop `bbox` and each image
+includes its original `sceneBbox`, both WGS84 west,south,east,north.
+Use the image URL in an HTML image element for a field photo; render the field
+outline separately if needed. Images are cropped to the field bounding box,
+including surrounding land within that rectangle; they are not polygon-masked.
+Crops are capped at 1024 pixels, and small crops are not enlarged. The external
+provider renders images on demand; catalogue success does not guarantee image
+rendering availability.
+
+Searches return newest scenes first, defaulting to the past year and at most six
+scenes with whole-scene cloud cover at or below 30%. `limit` is 1–20 and
+`maxCloud` is 0–100. Dates must be ordered, from 2013-04-11 for HLS (2015-06-27 for native Sentinel-2) through today, and
+span at most 366 days. Early archive coverage varies by location. Outlines must fit within 1 by 1 degree. No matches returns
+200 with an empty `images` list. If `hasMore` is true, narrow the dates to obtain
+older scenes. Invalid input returns 422, unknown field IDs 404, and catalogue
+failures 502.
+
+HLS pixels are **30 m**, including its Sentinel-derived S30 product: small fields may contain only a few pixels,
+and display resizing does not add detail. Cloud percentages describe the entire
+satellite scene, not the selected field; clouds are not masked by these endpoints.
+A scene can intersect a field without covering it completely. This is dated
+satellite imagery, not a live or aerial photograph.
+
+HLS provides harmonized observations across sensors for comparisons through time;
+it does not sharpen small-field images. Native Sentinel-2 remains the finer option.
+Each PNG is a separate observation, not a merged or cloud-free composite.
+HLS RGB display uses a fixed 0–0.3 reflectance stretch and gamma 1.4, with
+fill pixels transparent. This makes the scientific raster visible as a photo;
+bright surfaces can saturate. After a rendering update, request fresh `imageUrl`
+links: previously copied URLs retain their old rendering settings.
+
+Sources: [NASA HLS access](https://hls.gsfc.nasa.gov/data-access-and-tools/),
+[Sentinel-2 Level-2A catalogue](https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a),
+[Planetary Computer public APIs](https://planetarycomputer.microsoft.com/docs/).
 
 ## Field greenness
 

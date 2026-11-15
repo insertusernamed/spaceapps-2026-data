@@ -10,6 +10,27 @@ from pydantic import BaseModel
 
 VERSION = "0.2"
 
+IMAGERY_TEXT = (
+    "NASA HLS v2 RGB images (L30 and S30) via Microsoft Planetary Computer, no credentials. "
+    "Returns imageUrl links rendered by the provider, acquisition datetime, sceneCloudCoverPct and WGS84 bbox. "
+    "Images are cropped to the field bounding box, not masked to the polygon. Top-level bbox is the requested crop; images[].sceneBbox is the original scene extent. Crops are capped at 1024 pixels; small crops are not enlarged. "
+    "Default dataset=hls has 30 m pixels; dataset=sentinel-2 selects native 10 m RGB. HLS harmonizes observations across sensors; it does not increase spatial detail. Clouds are filtered at scene level, not measured or masked over the field. "
+    "Scenes intersect the outline but may not cover it completely. Newest scenes first, default 6, maximum 20. "
+    "An empty images list means no matching scenes. hasMore indicates more results; narrow the date range to see older scenes. "
+    "Dates default to the past year, must be from 2013-04-11 for HLS or 2015-06-27 for Sentinel-2 through today and span at most 366 days. "
+    "Outlines must fit within 1 by 1 degree. Image rendering availability depends on the external provider."
+)
+IMAGERY = {
+    "summary": "HLS or Sentinel-2 images for an outline", "description": IMAGERY_TEXT,
+    "responses": {422: {"description": "Invalid outline, dates or search options."},
+                  502: {"description": "Imagery catalogue unavailable or invalid."}},
+}
+IMAGERY_FIELD = {
+    **IMAGERY, "summary": "HLS or Sentinel-2 images for a field",
+    "responses": {**IMAGERY["responses"], 404: {"description": "Field not found."},
+                  503: {"description": "Field boundary data unavailable."}},
+}
+
 DESCRIPTION = """
 Agricultural field outlines, field areas and environmental summaries for map-based applications.
 
@@ -37,6 +58,7 @@ from national crop maps via the crop history routes.
 """
 
 TAGS = [
+    {"name": "Imagery", "description": "NASA HLS v2 (30 m) or Sentinel-2 (10 m) RGB field images with dates and cloud cover."},
     {"name": "Fields", "description": "Predicted agricultural field outlines and their estimated areas."},
     {"name": "Crops", "description": "What was planted in a field each year, from Canadian and US 30 m crop inventory maps."},
     {"name": "Soil", "description": "Topsoil texture, pH, organic matter and water holding for fields, from SoilGrids."},

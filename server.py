@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+from datetime import date
+from typing import Literal
 from pathlib import Path
 
 import requests
@@ -17,8 +19,8 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import CropHistoryRequest, FieldBatchRequest, GreennessRequest, SoilRequest
-from environmental import crops, greenness, soil
+from crop_history import CropHistoryRequest, FieldBatchRequest, GreennessRequest, SoilRequest, ImageryRequest
+from environmental import crops, greenness, soil, imagery
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -286,3 +288,30 @@ def field_soil(field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, 
 @app.post("/soil", tags=["Soil"], **docs.SOIL)
 def outline_soil(request: SoilRequest) -> dict:
     return _soil(request.polygon)
+
+
+def _imagery(polygon, start, end, max_cloud, limit, dataset="hls") -> dict:
+    try:
+        return imagery.images(polygon, start, end, max_cloud, limit, dataset)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/imagery", tags=["Imagery"], **docs.IMAGERY_FIELD)
+def field_imagery(
+    field_id: str,
+    dataset: Literal["hls", "sentinel-2"] = Query("hls", description="NASA HLS v2 at 30 m, or native Sentinel-2 RGB at 10 m."),
+    start: date | None = Query(None, description="First acquisition date; defaults to one year before end."),
+    end: date | None = Query(None, description="Last acquisition date; defaults to today."),
+    maxCloud: float = Query(30, ge=0, le=100, description="Maximum whole-scene cloud percentage."),
+    limit: int = Query(6, ge=1, le=20),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_imagery(polygon, start, end, maxCloud, limit, dataset)}
+
+
+@app.post("/imagery", tags=["Imagery"], **docs.IMAGERY)
+def outline_imagery(request: ImageryRequest) -> dict:
+    return _imagery(request.polygon, request.start, request.end, request.maxCloud, request.limit, request.dataset)
