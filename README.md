@@ -491,3 +491,43 @@ field directory at `/var/lib/spaceapps-fields`, with
 `FIELDS_DB=/var/lib/spaceapps-fields/fields.sqlite`. Both processes use UID/GID 1000
 for shared SQLite file access. Use systemd to start/stop the managed worker rather
 than starting a second worker manually.
+
+## Incremental HLS field seasons
+
+`GET /fields/{field_id}/season?start=2026-01-01&end=2026-11-14`
+starts acquisition and returns immediately. Poll the same request while `status`
+is `queued` or `running`. `POST /field-season` accepts `polygon`, `start`, `end`
+and optional `retry` for an explicit outline. Dates are inclusive UTC days.
+
+Python returns per-overpass NDVI mean and percentiles, valid sample count,
+coverage and cloud/snow/water fractions, plus real acquisition counters.
+It makes no crop, harvest or planting-date inference. Snow and water remain
+separate ground states; water pixels do not enter land NDVI. Fmask is read
+first; red and NIR are skipped below 20% candidate clear land support. Native
+30 m pixel centres and polygon holes are respected. Where at least four interior
+pixels remain after removing a one-pixel edge, statistics use those interior
+pixels; otherwise `interiorOnly` is false so consumers can disclose mixed edges.
+
+The service searches both HLS L30 and S30 through Microsoft Planetary Computer,
+selects one native tile covering the complete field, and shares persistent
+256-pixel raster blocks between nearby fields. Two jobs, four scene reads and
+eight band reads bound concurrency per process. Each job writes progress as
+observations finish; repeated polls do not resubmit it. Job results survive
+restarts, interrupted jobs can resume, and failed passes remain explicit.
+`retry=true` reprocesses a terminal acquisition using cached successful blocks.
+
+Cache storage defaults to `data/hls` (ignored by Git). Set `HLS_CACHE_DIR` to a
+persistent writable directory and `HLS_CACHE_MB` to adjust the default 2000 MB
+raster-block budget; pruning runs after jobs finish. No Earthdata login or new
+Python dependency is required. Acquisition requires outbound access to
+Planetary Computer and its public Azure raster assets. Current periods refresh
+after six hours; periods ending at least ten days ago remain cached. Late provider
+backfills for older periods require an explicit retry.
+
+Limits are explicit: one period of at most 366 inclusive days, 500 scenes and
+512 native pixels (15.36 km) per window dimension. Tile-spanning fields are
+reported as unsupported rather than silently clipped. Fields with no native
+pixel centres return zero measurements. Jobs are local disk/thread jobs, not a
+distributed queue; multiple replicas need their own cache or shared storage.
+
+Run acquisition checks with `.venv/bin/python -m unittest tests.test_hls_season`.

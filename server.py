@@ -19,8 +19,8 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import CropHistoryRequest, FieldBatchRequest, GreennessRequest, SoilRequest, ImageryRequest
-from environmental import crops, greenness, soil, imagery
+from crop_history import CropHistoryRequest, FieldBatchRequest, GreennessRequest, SoilRequest, ImageryRequest, FieldSeasonRequest
+from environmental import crops, greenness, soil, imagery, hls
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -315,3 +315,29 @@ def field_imagery(
 @app.post("/imagery", tags=["Imagery"], **docs.IMAGERY)
 def outline_imagery(request: ImageryRequest) -> dict:
     return _imagery(request.polygon, request.start, request.end, request.maxCloud, request.limit, request.dataset)
+
+
+@app.get("/fields/{field_id}/season", tags=["Imagery"], summary="Incremental HLS measurements for a field",
+         description="Starts or polls a cached acquisition job. Returns native 30 m field measurements and QA fractions; crop interpretation and display quality belong to Java.")
+def field_season(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION),
+    start: date = Query(..., description="First acquisition date, inclusive."),
+    end: date = Query(..., description="Last acquisition date, inclusive."),
+    retry: bool = Query(False, description="Retry a terminal acquisition after failed scene reads."),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    try:
+        return {"id": field_id, **hls.season(polygon, start, end, identity=field_id, retry=retry)}
+    except DataError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error
+
+
+@app.post("/field-season", tags=["Imagery"], summary="Incremental HLS measurements for an outline",
+          description="Acquires QA and numerical HLS observations incrementally over an explicit period. Repeat the same request to poll; fields share cached native raster blocks.")
+def outline_season(request: FieldSeasonRequest) -> dict:
+    try:
+        return hls.season(request.polygon, request.start, request.end, retry=request.retry)
+    except DataError as error:
+        raise HTTPException(status_code=error.status, detail=str(error)) from error

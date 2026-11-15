@@ -89,3 +89,10 @@ class SoilRequest(BaseModel):
     @classmethod
     def valid_polygon(cls, value):
         return CropHistoryRequest.valid_polygon(value)
+
+
+class FieldSeasonRequest(CropHistoryRequest):
+    """Explicit observation period; application season choices belong to Java."""
+    start: date = Field(description="First observation date, inclusive.")
+    end: date = Field(description="Last observation date, inclusive.")
+    retry: bool = Field(False, description="Retry a completed acquisition that had failures.")
