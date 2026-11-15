@@ -91,6 +91,13 @@ class SoilRequest(BaseModel):
         return CropHistoryRequest.valid_polygon(value)
 
 
+class FieldSeasonRequest(CropHistoryRequest):
+    """Explicit observation period; application season choices belong to Java."""
+    start: date = Field(description="First observation date, inclusive.")
+    end: date = Field(description="Last observation date, inclusive.")
+    retry: bool = Field(False, description="Retry a completed acquisition that had failures.")
+
+
 class AgroWeatherRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"polygon": EXAMPLE_POLYGON, "years": 20}]})
     polygon: dict[str, Any] | list[list[float]] = Field(
@@ -104,13 +111,6 @@ class AgroWeatherRequest(BaseModel):
         return CropHistoryRequest.valid_polygon(value)
 
 
-class FieldSeasonRequest(CropHistoryRequest):
-    """Explicit observation period; application season choices belong to Java."""
-    start: date = Field(description="First observation date, inclusive.")
-    end: date = Field(description="Last observation date, inclusive.")
-    retry: bool = Field(False, description="Retry a completed acquisition that had failures.")
-
-
 class CropCalendarRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
         {"polygon": EXAMPLE_POLYGON, "system": "rainfed", "crops": ["corn", "soybeans", "winter_wheat"]}]})
@@ -120,6 +120,19 @@ class CropCalendarRequest(BaseModel):
     system: Literal["rainfed", "irrigated"] = Field(default="rainfed", description="Rainfed or irrigated farming.")
     crops: list[str] | None = Field(default=None, min_length=1, max_length=20,
                                     description="Calendar crop keys to return; all crops when omitted.")
+
+    @field_validator("polygon", mode="before")
+    @classmethod
+    def valid_polygon(cls, value):
+        return CropHistoryRequest.valid_polygon(value)
+
+
+class VegetationHistoryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"polygon": EXAMPLE_POLYGON, "years": 5}]})
+    polygon: dict[str, Any] | list[list[float]] = Field(
+        description="GeoJSON Polygon, MultiPolygon or Feature, or a ring of [longitude, latitude] positions."
+    )
+    years: int = Field(default=5, ge=1, le=10, description="Years of 16-day NDVI to read, ending today.")
 
     @field_validator("polygon", mode="before")
     @classmethod

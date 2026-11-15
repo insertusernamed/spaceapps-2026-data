@@ -19,9 +19,9 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import (AgroWeatherRequest, CropCalendarRequest, CropHistoryRequest, FieldBatchRequest, GreennessRequest,
-                          ImageryRequest, SoilRequest, FieldSeasonRequest)
-from environmental import agro_weather, crop_calendar, crops, greenness, soil, imagery, hls
+from crop_history import (AgroWeatherRequest, CropCalendarRequest, CropHistoryRequest, FieldBatchRequest,
+                          FieldSeasonRequest, GreennessRequest, ImageryRequest, SoilRequest, VegetationHistoryRequest)
+from environmental import agro_weather, crop_calendar, crops, greenness, hls, imagery, soil, vegetation_history
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -318,29 +318,6 @@ def outline_imagery(request: ImageryRequest) -> dict:
     return _imagery(request.polygon, request.start, request.end, request.maxCloud, request.limit, request.dataset)
 
 
-def _agro_weather(polygon, years: int) -> dict:
-    try:
-        return agro_weather.summary(polygon, years)
-    except DataError as exc:
-        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
-
-
-@app.get("/fields/{field_id}/agro-weather", tags=["Environment"], **docs.AGRO_WEATHER_FIELD)
-def field_agro_weather(
-    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
-    years: int = Query(20, ge=5, le=45, description="Years of history to read, ending today."),
-) -> dict:
-    polygon = _field_geometry(field_id)
-    if polygon is None:
-        raise HTTPException(status_code=404, detail="Field not found")
-    return {"id": field_id, **_agro_weather(polygon, years)}
-
-
-@app.post("/agro-weather", tags=["Environment"], **docs.AGRO_WEATHER)
-def outline_agro_weather(request: AgroWeatherRequest) -> dict:
-    return _agro_weather(request.polygon, request.years)
-
-
 @app.get("/fields/{field_id}/season", tags=["Imagery"], summary="Incremental HLS measurements for a field",
          description="Starts or polls a cached acquisition job. Returns native 30 m field measurements and QA fractions; crop interpretation and display quality belong to Java.")
 def field_season(
@@ -367,6 +344,29 @@ def outline_season(request: FieldSeasonRequest) -> dict:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
 
 
+def _agro_weather(polygon, years: int) -> dict:
+    try:
+        return agro_weather.summary(polygon, years)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/agro-weather", tags=["Environment"], **docs.AGRO_WEATHER_FIELD)
+def field_agro_weather(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    years: int = Query(20, ge=5, le=45, description="Years of history to read, ending today."),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_agro_weather(polygon, years)}
+
+
+@app.post("/agro-weather", tags=["Environment"], **docs.AGRO_WEATHER)
+def outline_agro_weather(request: AgroWeatherRequest) -> dict:
+    return _agro_weather(request.polygon, request.years)
+
+
 def _crop_calendar(polygon, system: str, wanted: list[str] | None) -> dict:
     try:
         return crop_calendar.calendar(polygon, system, wanted)
@@ -391,3 +391,26 @@ def field_crop_calendar(
 @app.post("/crop-calendar", tags=["Crops"], **docs.CROP_CALENDAR)
 def outline_crop_calendar(request: CropCalendarRequest) -> dict:
     return _crop_calendar(request.polygon, request.system, request.crops)
+
+
+def _vegetation_history(polygon, years: int) -> dict:
+    try:
+        return vegetation_history.history(polygon, years)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/vegetation-history", tags=["Crops"], **docs.VEGETATION_HISTORY_FIELD)
+def field_vegetation_history(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    years: int = Query(5, ge=1, le=10, description="Years of 16-day NDVI to read, ending today."),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_vegetation_history(polygon, years)}
+
+
+@app.post("/vegetation-history", tags=["Crops"], **docs.VEGETATION_HISTORY)
+def outline_vegetation_history(request: VegetationHistoryRequest) -> dict:
+    return _vegetation_history(request.polygon, request.years)

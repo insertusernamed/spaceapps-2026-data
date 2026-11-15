@@ -462,6 +462,18 @@ at `POST /crop-calendar`. About 3 MB of files are downloaded from Zenodo on firs
 `CROP_CALENDAR_DIR` (default `data/crop-calendar`). Dates are multi-year averages around 2000, and cells
 where a crop is not grown are filled in from other areas, so check them against local practice.
 
+## Vegetation history (NASA MODIS)
+
+```sh
+curl 'http://127.0.0.1:8000/fields/<field_id>/vegetation-history?years=5'
+```
+
+NDVI every 16 days at 250 m (MOD13Q1) for the last 1 to 10 years, with each year's peak, green-up and
+brown-down and the date ranges that usually have little green cover; plus yearly net primary production
+(MOD17A3HGF) and evapotranspiration (MOD16A3GF) since 2001. Also at `POST /vegetation-history`. Files are
+read as cloud-optimized images from Microsoft Planetary Computer with no account. The first request takes
+about 30 seconds for 5 years; repeats are cached for 12 hours.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.

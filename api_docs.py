@@ -529,3 +529,39 @@ CROP_CALENDAR = {
     "responses": {422: {"description": "Invalid polygon, unknown system or crop key, or unknown request property."},
                   502: CROP_CALENDAR_ERROR},
 }
+
+VEGETATION_HISTORY_TEXT = (
+    "A field's long vegetation record from NASA MODIS/Terra, read through Microsoft Planetary Computer with no "
+    "account.\n\n"
+    "- `ndvi.observations`: NDVI every 16 days at 250 m for the last `years` years (MOD13Q1; 1 to 10 years, default 5). "
+    "`snow` is true, with `ndvi` null, when the field was snow-covered. Composites with under half the field usable "
+    "(cloud) are left out.\n"
+    "- `ndvi.byYear`: each year's `peakNdvi` and `peakDate`, `greenUpDate` and `brownDownDate` (first and last "
+    "composite at least halfway from the year's low to its peak; null when the year varies by less than 0.2), "
+    "`greenDays` between them and `lowCoverDays`.\n"
+    "- `ndvi.calendar`: for each 16-day period of the year, the median NDVI and `lowCoverShare`, the share of years "
+    "with NDVI under 0.3 or snow. `ndvi.lowCoverWindows` joins the periods where that share is at least half into "
+    "date ranges, longest first: when the field usually has little green cover.\n"
+    "- `yearly`: net primary production (kg of carbon per square metre, MOD17A3HGF), evapotranspiration and "
+    "potential evapotranspiration (mm, MOD16A3GF) for every year from 2001, with `etShareOfPet`; "
+    "`yearlySummary` gives medians and the production trend per year.\n\n"
+    "**Limits:** pixels are 250 to 500 m, so small fields share values with their surroundings; use the "
+    "Sentinel-2 greenness route for detail since 2017. Low cover includes stubble and young crops, not only bare "
+    "soil. Yearly values are modelled from satellite data.\n\n"
+    "**Speed:** the first request reads about 46 files per year of NDVI plus 75 yearly files: about 30 seconds for "
+    "5 years and 45 seconds for 10. Repeats are cached for 12 hours. Show a loading state."
+)
+VEGETATION_HISTORY_ERROR = error("The MODIS catalogue or files could not be reached.",
+                                 "Planetary Computer (MODIS catalogue) is unavailable")
+VEGETATION_HISTORY_FIELD = {
+    "summary": "Long vegetation record of a field",
+    "description": VEGETATION_HISTORY_TEXT,
+    "responses": {404: error("No field has this ID in the loaded data.", "Field not found"),
+                  422: {"description": "years outside 1 to 10."}, 502: VEGETATION_HISTORY_ERROR, 503: FIELDS_UNAVAILABLE},
+}
+VEGETATION_HISTORY = {
+    "summary": "Long vegetation record of any outline",
+    "description": VEGETATION_HISTORY_TEXT,
+    "responses": {422: {"description": "Invalid polygon, years outside 1 to 10, or unknown request property."},
+                  502: VEGETATION_HISTORY_ERROR},
+}
