@@ -438,6 +438,19 @@ growing-degree days, season and annual rain, ET0, water deficit and stress, fros
 and heavy-rain days); a value is `null` for a year without enough valid days. `yearly.percentiles` gives p10,
 p50 and p90 across the valid years. Use these to ask how often a field reaches what a crop needs.
 
+## Agro-weather (NASA POWER)
+
+```sh
+curl 'http://127.0.0.1:8000/fields/<field_id>/agro-weather?years=20'
+curl -X POST http://127.0.0.1:8000/agro-weather -H 'Content-Type: application/json' \
+  -d '{"polygon": {"type": "Polygon", "coordinates": [[[-79.159,44.349],[-79.150,44.349],[-79.150,44.355],[-79.159,44.355],[-79.159,44.349]]]}}'
+```
+
+Root-zone and surface soil wetness (latest 30 days ranked against earlier years, by calendar month and by
+growing season), FAO-56 Penman-Monteith ET0, and season radiation, wind and humidity, from NASA POWER at about
+50 km. No account. These are regional, modelled values; the latest days come from POWER's near-real-time
+stream and can read differently from the long record.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.

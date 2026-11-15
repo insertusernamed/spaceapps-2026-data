@@ -19,8 +19,9 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import CropHistoryRequest, FieldBatchRequest, GreennessRequest, SoilRequest, ImageryRequest, FieldSeasonRequest
-from environmental import crops, greenness, soil, imagery, hls
+from crop_history import (AgroWeatherRequest, CropHistoryRequest, FieldBatchRequest, GreennessRequest,
+                          ImageryRequest, SoilRequest, FieldSeasonRequest)
+from environmental import agro_weather, crops, greenness, soil, imagery, hls
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -315,6 +316,29 @@ def field_imagery(
 @app.post("/imagery", tags=["Imagery"], **docs.IMAGERY)
 def outline_imagery(request: ImageryRequest) -> dict:
     return _imagery(request.polygon, request.start, request.end, request.maxCloud, request.limit, request.dataset)
+
+
+def _agro_weather(polygon, years: int) -> dict:
+    try:
+        return agro_weather.summary(polygon, years)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/agro-weather", tags=["Environment"], **docs.AGRO_WEATHER_FIELD)
+def field_agro_weather(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    years: int = Query(20, ge=5, le=45, description="Years of history to read, ending today."),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    return {"id": field_id, **_agro_weather(polygon, years)}
+
+
+@app.post("/agro-weather", tags=["Environment"], **docs.AGRO_WEATHER)
+def outline_agro_weather(request: AgroWeatherRequest) -> dict:
+    return _agro_weather(request.polygon, request.years)
 
 
 @app.get("/fields/{field_id}/season", tags=["Imagery"], summary="Incremental HLS measurements for a field",

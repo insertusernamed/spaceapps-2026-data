@@ -469,3 +469,34 @@ SOIL = {
         502: SOIL_PROVIDER_ERROR,
     },
 }
+
+AGRO_WEATHER_TEXT = (
+    "Soil wetness, solar radiation, wind, humidity and reference evapotranspiration around a field from NASA POWER "
+    "(MERRA-2 and CERES, about 50 km), daily from 1981 to a few days ago. These are regional, modelled values, not "
+    "field measurements.\n\n"
+    "- `soilWetness.latest`: the newest root-zone and surface wetness (0 dry, 1 saturated), the mean of the latest 30 "
+    "days, and its `percentile` against the same 30 days in earlier years, with `status` `dry` (20th percentile or "
+    "lower), `normal` or `wet` (80th or higher). `percentile` is null with fewer than 5 earlier years.\n"
+    "- `soilWetness.monthly`: the usual wetness for each calendar month; `seasonPercentiles` gives p10, p50 and p90 of "
+    "the growing-season mean across years.\n"
+    "- `et0`: FAO-56 Penman-Monteith reference evapotranspiration, which uses radiation, wind and humidity; "
+    "`/field-summary` uses the temperature-only Hargreaves estimate.\n"
+    "- `seasonByYear`: growing-season wetness, ET0 (mm), radiation, wind and humidity for each year; null for a "
+    "season with under 90% of its days.\n\n"
+    "Growing season is May-September north of the equator, November-March south of it. The first request for a place "
+    "takes a few seconds; repeats are cached for 6 hours."
+)
+AGRO_WEATHER_ERROR = error("NASA POWER could not be reached or returned unusable data.",
+                           "NASA POWER agro-weather is unavailable or invalid")
+AGRO_WEATHER_FIELD = {
+    "summary": "Soil wetness, radiation and ET0 around a field",
+    "description": AGRO_WEATHER_TEXT,
+    "responses": {404: error("No field has this ID in the loaded data.", "Field not found"),
+                  422: {"description": "years outside 5 to 45."}, 502: AGRO_WEATHER_ERROR, 503: FIELDS_UNAVAILABLE},
+}
+AGRO_WEATHER = {
+    "summary": "Soil wetness, radiation and ET0 around any outline",
+    "description": AGRO_WEATHER_TEXT,
+    "responses": {422: {"description": "Invalid polygon, years outside 5 to 45, or unknown request property."},
+                  502: AGRO_WEATHER_ERROR},
+}

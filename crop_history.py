@@ -91,6 +91,19 @@ class SoilRequest(BaseModel):
         return CropHistoryRequest.valid_polygon(value)
 
 
+class AgroWeatherRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{"polygon": EXAMPLE_POLYGON, "years": 20}]})
+    polygon: dict[str, Any] | list[list[float]] = Field(
+        description="GeoJSON Polygon, MultiPolygon or Feature, or a ring of [longitude, latitude] positions."
+    )
+    years: int = Field(default=20, ge=5, le=45, description="Years of history to read, ending today.")
+
+    @field_validator("polygon", mode="before")
+    @classmethod
+    def valid_polygon(cls, value):
+        return CropHistoryRequest.valid_polygon(value)
+
+
 class FieldSeasonRequest(CropHistoryRequest):
     """Explicit observation period; application season choices belong to Java."""
     start: date = Field(description="First observation date, inclusive.")
