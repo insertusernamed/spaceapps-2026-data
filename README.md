@@ -362,19 +362,56 @@ Crops are capped at 1024 pixels, and small crops are not enlarged. The external
 provider renders images on demand; catalogue success does not guarantee image
 rendering availability.
 
-Searches return newest scenes first, defaulting to the past year and at most six
-scenes with whole-scene cloud cover at or below 30%. `limit` is 1–20 and
-`maxCloud` is 0–100. Dates must be ordered, from 2013-04-11 for HLS (2015-06-27 for native Sentinel-2) through today, and
-span at most 366 days. Early archive coverage varies by location. Outlines must fit within 1 by 1 degree. No matches returns
-200 with an empty `images` list. If `hasMore` is true, narrow the dates to obtain
-older scenes. Invalid input returns 422, unknown field IDs 404, and catalogue
-failures 502.
+Searches default to the full archive hosted by Planetary Computer:
+**2020-01-01 through today for HLS**, or **2015-06-27 through today for native
+Sentinel-2**. These are the provider collection start dates, not mission launch
+dates; actual coverage depends on the field. Explicit multi-year ranges are
+supported. Dates must be ordered and cannot extend into the future.
 
-HLS pixels are **30 m**, including its Sentinel-derived S30 product: small fields may contain only a few pixels,
-and display resizing does not add detail. Cloud percentages describe the entire
-satellite scene, not the selected field; clouds are not masked by these endpoints.
-A scene can intersect a field without covering it completely. This is dated
-satellite imagery, not a live or aerial photograph.
+The default and maximum `limit` is 20. For multi-year searches, slots are
+allocated evenly across calendar years. When there are fewer slots than years,
+the selected years span the range, including both endpoints (a single slot uses
+the most recent year). Up to eight candidates per year are sampled across dates
+and checked for field quality; a year without a passing candidate can leave a
+gap. Single-year searches examine newest candidates first, with a 40-candidate
+budget and catalogue pagination. Returned images remain newest first; the
+frontend sorts them chronologically for its slider. This is a representative
+history, not every historical overpass.
+
+`maxCloud` (0–100, default 30) remains a coarse whole-scene filter. Selection then
+reads HLS Fmask or native Sentinel-2 SCL plus RGB data over the actual polygon,
+including holes. At least **90% of sampled field pixels must have valid RGB** and
+**90% must also be clear**. Clouds, shadows, snow and missing coverage are
+excluded; HLS cloud-adjacent pixels are excluded too. Native SCL checks also
+exclude dark/shadowed and unclassified pixels. Water remains eligible for viewing.
+QA uses its native grid (HLS 30 m, Sentinel-2 SCL 20 m), capped at 1024 pixels per
+side for large outlines. Tiny fields containing no QA pixel centres are rejected
+rather than using surrounding bounding-box pixels. The rendered PNG itself is
+not quality-masked, so an accepted scene can still contain up to 10% unusable
+field pixels. Quality flags are estimates, not a guarantee of cloud-free imagery.
+
+Each image includes `fieldQuality` counts and `validShare`, `clearShare`,
+`cloudShare`, `shadowShare` and `sampled`. The response reports `scenesChecked`,
+`scenesUnreadable`, `yearsWithoutClearImages`, `yearsUnreadable`, `selection` and
+`qualityFilter`. The Java API currently forwards the selected images, period and
+selection note; these additional diagnostics are available directly from this
+data API. Unreadable assets are skipped, but an entirely unreadable search fails
+with 502. Successful and rejected QA measurements are cached in memory; failures
+remain retryable. Up to four scenes can read raster assets concurrently across
+requests.
+
+No passing sampled scene returns 200 with an empty `images` list. `hasMore`
+includes unchecked candidates beyond the sampling budget; narrowing dates can
+find additional images. Outlines must fit within 1 by 1 degree. Invalid input
+returns 422 and unknown field IDs return 404. HLS pixels are **30 m**, including
+S30: display resizing adds no detail. This is dated satellite imagery, not a live
+or aerial photograph.
+
+Run offline imagery checks with:
+
+```sh
+python -m unittest tests.test_imagery tests.test_imagery_quality
+```
 
 HLS provides harmonized observations across sensors for comparisons through time;
 it does not sharpen small-field images. Native Sentinel-2 remains the finer option.

@@ -302,10 +302,10 @@ def _imagery(polygon, start, end, max_cloud, limit, dataset="hls") -> dict:
 def field_imagery(
     field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION),
     dataset: Literal["hls", "sentinel-2"] = Query("hls", description="NASA HLS v2 at 30 m, or native Sentinel-2 RGB at 10 m."),
-    start: date | None = Query(None, description="First acquisition date; defaults to one year before end."),
+    start: date | None = Query(None, description="First acquisition date; defaults to archive start (HLS 2020-01-01, Sentinel-2 2015-06-27)."),
     end: date | None = Query(None, description="Last acquisition date; defaults to today."),
     maxCloud: float = Query(30, ge=0, le=100, description="Maximum whole-scene cloud percentage."),
-    limit: int = Query(6, ge=1, le=20, description="Maximum number of matching satellite scenes to return."),
+    limit: int = Query(20, ge=1, le=20, description="Maximum number of matching satellite scenes to return."),
 ) -> dict:
     polygon = _field_geometry(field_id)
     if polygon is None:

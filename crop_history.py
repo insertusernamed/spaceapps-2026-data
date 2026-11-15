@@ -39,7 +39,7 @@ class ImageryRequest(CropHistoryRequest):
     start: date | None = None
     end: date | None = None
     maxCloud: float = Field(default=30, ge=0, le=100)
-    limit: int = Field(default=6, ge=1, le=20)
+    limit: int = Field(default=20, ge=1, le=20)
 
 
 MAX_BATCH_FIELDS = 100

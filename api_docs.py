@@ -14,16 +14,16 @@ IMAGERY_TEXT = (
     "NASA HLS v2 RGB images (L30 and S30) via Microsoft Planetary Computer, no credentials. "
     "Returns imageUrl links rendered by the provider, acquisition datetime, sceneCloudCoverPct and WGS84 bbox. "
     "Images are cropped to the field bounding box, not masked to the polygon. Top-level bbox is the requested crop; images[].sceneBbox is the original scene extent. Crops are capped at 1024 pixels; small crops are not enlarged. "
-    "Default dataset=hls has 30 m pixels; dataset=sentinel-2 selects native 10 m RGB. HLS harmonizes observations across sensors; it does not increase spatial detail. Clouds are filtered at scene level, not measured or masked over the field. "
-    "Scenes intersect the outline but may not cover it completely. Newest scenes first, default 6, maximum 20. "
-    "An empty images list means no matching scenes. hasMore indicates more results; narrow the date range to see older scenes. "
-    "Dates default to the past year, must be from 2013-04-11 for HLS or 2015-06-27 for Sentinel-2 through today and span at most 366 days. "
+    "Default dataset=hls has 30 m pixels; dataset=sentinel-2 selects native 10 m RGB. HLS harmonizes observations across sensors; it does not increase spatial detail. maxCloud first filters whole-scene cloud cover. Field-level Fmask (HLS) or SCL (Sentinel-2) checks then require at least 90% valid RGB pixels and 90% clear pixels inside the polygon, excluding clouds, shadows, snow and fill. QA is sampled at native resolution, capped at 1024 pixels per side. Images are not quality-masked. "
+    "Default 20 images, maximum 20. Image slots are allocated across calendar years; scenes within each year are sampled across dates and checked for quality. Up to eight candidate scenes per year are checked. Years with no passing sampled image or unavailable quality data are reported. Results are listed newest first. "
+    "An empty images list means no sampled scene passed. hasMore includes unchecked candidates; narrow the date range for a deeper search. All checked quality assets being unreadable returns 502. "
+    "Dates default to the full hosted archive: HLS from 2020-01-01, native Sentinel-2 from 2015-06-27, through today. Explicit multi-year date ranges are supported. Actual clear-image coverage varies by field. "
     "Outlines must fit within 1 by 1 degree. Image rendering availability depends on the external provider."
 )
 IMAGERY = {
     "summary": "HLS or Sentinel-2 images for an outline", "description": IMAGERY_TEXT,
     "responses": {422: {"description": "Invalid outline, dates or search options."},
-                  502: {"description": "Imagery catalogue unavailable or invalid."}},
+                  502: {"description": "Imagery catalogue or field quality assets unavailable or invalid."}},
 }
 IMAGERY_FIELD = {
     **IMAGERY, "summary": "HLS or Sentinel-2 images for a field",
