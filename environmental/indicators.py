@@ -326,6 +326,32 @@ def _yearly(
     return out
 
 
+YEARLY_COLUMNS = (
+    "chu_available", "gdd_season", "gdd_annual", "season_precip_mm", "precip_mm", "season_et0_mm",
+    "water_deficit_mm", "water_stress_index", "frost_free_days", "frost_days", "heat_days_30",
+    "dry_spell_days", "heavy_rain_days", "max_1day_precip_mm",
+)
+
+
+def yearly_block(yearly: pd.DataFrame) -> dict:
+    """Year-by-year indicators and their spread, for judging how reliably a field meets a crop's needs.
+
+    `years` has one row per year (season values belong to the season's start year); a value is None
+    when that year lacks enough valid days. `percentiles` gives p10, p50 and p90 across the valid years.
+    """
+    def number(value):
+        return None if pd.isna(value) else round(float(value), 3)
+
+    rows = [{"year": int(year), **{c: number(row[c]) for c in YEARLY_COLUMNS}} for year, row in yearly.iterrows()]
+    percentiles = {}
+    for column in YEARLY_COLUMNS:
+        valid = yearly[column].dropna()
+        percentiles[column] = None if valid.empty else {
+            "p10": number(valid.quantile(0.1)), "p50": number(valid.quantile(0.5)),
+            "p90": number(valid.quantile(0.9)), "years": int(len(valid))}
+    return {"years": rows, "percentiles": percentiles}
+
+
 def _median(series: pd.Series) -> float | None:
     y = series.dropna()
     return float(y.median()) if len(y) else None
@@ -571,6 +597,7 @@ def summarize(
     }
     months = month_table(frame, lat, min_coverage, base_temp)
     return yearly, {
+        "yearly": yearly_block(yearly),
         "climate": climate,
         "water": water,
         "frost": frost_dates(frame, lat, min_coverage),

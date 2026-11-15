@@ -232,7 +232,7 @@ def summarize_field(request: FieldSummaryRequest) -> dict:
         "period": {"start": start, "end": end},
         **{
             key: summary[key]
-            for key in ("season", "climate", "water", "frost", "monthly", "coverage")
+            for key in ("season", "climate", "water", "frost", "monthly", "yearly", "coverage")
         },
         "terrain": terrain_block,
         "layers": {"weather": weather_status, "terrain": terrain_status},

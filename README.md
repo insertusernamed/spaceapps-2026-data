@@ -431,6 +431,13 @@ once and kept in `SOIL_INDEX_DIR` (default: a `soilgrids-index` folder beside
 downloads them (about 40 seconds); later fields take about 2 seconds, and repeats
 are cached.
 
+## Year-by-year climate indicators
+
+`POST /field-summary` also returns `yearly`. `yearly.years` has one row per year (crop heat units,
+growing-degree days, season and annual rain, ET0, water deficit and stress, frost-free days, heat, dry-spell
+and heavy-rain days); a value is `null` for a year without enough valid days. `yearly.percentiles` gives p10,
+p50 and p90 across the valid years. Use these to ask how often a field reaches what a crop needs.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.
