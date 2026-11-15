@@ -335,7 +335,7 @@ One failed field never fails the batch, so a valid request returns 200; check `f
 ## NASA HLS v2 field imagery
 
 For frontend display, use an `images[].imageUrl` returned by the imagery routes
-as the image source. These links return images cropped to the field bounding box.
+as the image source. These links return images cropped around the field with surrounding context.
 
 `GET /fields/{field_id}/imagery` returns NASA Harmonized Landsat Sentinel-2
 v2.0 RGB image links from both L30 and S30 collections via Microsoft Planetary Computer. No credentials or new
@@ -353,11 +353,11 @@ formats as `/crop-history`. Both routes are available in Swagger at `/docs`.
 
 Each entry in `images` includes `imageUrl` (a directly displayable PNG),
 `datetime`, `sceneId`, `collection`, `platform`, `sceneCloudCoverPct`, and `sceneUrl` (STAC
-metadata). The response includes the requested crop `bbox` and each image
+metadata). The response includes the padded image crop `bbox` and each image
 includes its original `sceneBbox`, both WGS84 west,south,east,north.
 Use the image URL in an HTML image element for a field photo; render the field
-outline separately if needed. Images are cropped to the field bounding box,
-including surrounding land within that rectangle; they are not polygon-masked.
+outline separately if needed. Image crops pad each edge by the full field span (at least 180 m),
+including surrounding land; they are not polygon-masked.
 Crops are capped at 1024 pixels, and small crops are not enlarged. The external
 provider renders images on demand; catalogue success does not guarantee image
 rendering availability.
@@ -380,7 +380,7 @@ history, not every historical overpass.
 
 `maxCloud` (0–100, default 30) remains a coarse whole-scene filter. Selection then
 reads HLS Fmask or native Sentinel-2 SCL plus RGB data over the actual polygon,
-including holes. At least **90% of sampled field pixels must have valid RGB** and
+including holes. Crop padding does not expand the QA polygon. At least **90% of sampled field pixels must have valid RGB** and
 **90% must also be clear**. Clouds, shadows, snow and missing coverage are
 excluded; HLS cloud-adjacent pixels are excluded too. Native SCL checks also
 exclude dark/shadowed and unclassified pixels. Water remains eligible for viewing.

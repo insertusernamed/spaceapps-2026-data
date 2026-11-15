@@ -39,7 +39,8 @@ class TestImagery(unittest.TestCase):
             query = parse_qs(urlparse(scene["imageUrl"]).query)
             self.assertEqual(query["collection"], [scene["collection"]])
             self.assertEqual(query["assets"], ["B04", "B03", "B02"])
-            self.assertEqual(urlparse(scene["imageUrl"]).path, "/api/data/v1/item/bbox/-88.95,40.45,-88.947,40.453.png")
+            crop = [float(v) for v in urlparse(scene["imageUrl"]).path.rsplit("/", 1)[1][:-4].split(",")]
+            self.assertEqual(crop, result["bbox"])
             self.assertEqual(query["max_size"], ["1024"])
             self.assertEqual(query["rescale"], ["0,3000"])
             self.assertEqual(query["color_formula"], ["gamma RGB 1.4"])
@@ -60,8 +61,12 @@ class TestImagery(unittest.TestCase):
         self.assertEqual(body["sortby"], [{"field": "datetime", "direction": "desc"}])
         self.assertEqual(body["intersects"]["coordinates"][0], EXAMPLE_POLYGON["coordinates"])
         url = urlparse(result["images"][0]["imageUrl"])
-        self.assertEqual(url.path, "/api/data/v1/item/bbox/-88.95,40.45,-88.947,40.453.png")
-        self.assertEqual(result["bbox"], [-88.95, 40.45, -88.947, 40.453])
+        crop = [float(v) for v in url.path.rsplit("/", 1)[1][:-4].split(",")]
+        self.assertEqual(crop, result["bbox"])
+        self.assertLess(crop[0], -88.95)
+        self.assertLess(crop[1], 40.45)
+        self.assertGreater(crop[2], -88.947)
+        self.assertGreater(crop[3], 40.453)
         self.assertEqual(parse_qs(url.query)["assets"], ["visual"])
         self.assertEqual(parse_qs(url.query)["asset_bidx"], ["visual|1,2,3"])
         self.assertNotIn("color_formula", parse_qs(url.query))
@@ -154,6 +159,21 @@ class TestImagery(unittest.TestCase):
             imagery._history(body, {}, date(2020, 1, 1), date(2026, 11, 15), 3)
         years = sorted(int(call.args[0]["datetime"][:4]) for call in select.call_args_list)
         self.assertEqual(years, [2020, 2023, 2026])
+
+    def test_crop_includes_context_without_changing_field_search_or_quality(self):
+        response = Mock()
+        response.json.return_value = {"features": []}
+        with patch.object(imagery.requests, "post", return_value=response) as post:
+            result = imagery.images(EXAMPLE_POLYGON, date(2025, 6, 1), date(2025, 9, 1))
+        self.assertEqual(post.call_args.kwargs["json"]["intersects"]["coordinates"][0], EXAMPLE_POLYGON["coordinates"])
+        west, south, east, north = result["bbox"]
+        self.assertAlmostEqual(west, -88.953)
+        self.assertAlmostEqual(south, 40.447)
+        self.assertAlmostEqual(east, -88.944)
+        self.assertAlmostEqual(north, 40.456)
+        tiny = imagery._crop_bounds((-80, 44, -79.99999, 44.00001))
+        self.assertGreater(tiny[2] - tiny[0], 0.002)
+        self.assertGreater(tiny[3] - tiny[1], 0.001)
 
     def test_default_period_uses_hosted_archive_start_not_mission_launch(self):
         for dataset, expected in (("hls", date(2020, 1, 1)), ("sentinel-2", date(2015, 6, 27))):

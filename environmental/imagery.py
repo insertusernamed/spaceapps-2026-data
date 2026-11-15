@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 import json
+import math
 from datetime import date
 from urllib.parse import urlencode
 
@@ -154,6 +155,19 @@ def _history(body, shape, start, end, limit):
     return selected, has_more, checked, unreadable, missing, failed
 
 
+def _crop_bounds(bounds):
+    """Include surrounding land without changing the polygon used for scene QA.
+
+    Pad each edge by a full field span, with at least 180 metres of context.
+    Clamp at geographic limits and preserve longitude/latitude ordering.
+    """
+    west, south, east, north = bounds
+    latitude = (south + north) / 2
+    dy = max(north - south, 180 / 111_320)
+    dx = max(east - west, 180 / (111_320 * max(0.01, math.cos(math.radians(latitude)))))
+    return max(-180, west - dx), max(-90, south - dy), min(180, east + dx), min(90, north + dy)
+
+
 def images(polygon, start=None, end=None, max_cloud=30, limit=20, dataset="hls"):
     """Return quality-screened RGB scenes spread across the requested archive years."""
     if dataset not in ("hls", "sentinel-2"):
@@ -171,6 +185,7 @@ def images(polygon, start=None, end=None, max_cloud=30, limit=20, dataset="hls")
     bounds = geometry.bbox(polygon)
     if geometry.area_ha(polygon) <= 0 or bounds[2] - bounds[0] > 1 or bounds[3] - bounds[1] > 1:
         raise ValidationError("outline must have positive area and fit within 1 by 1 degree")
+    bounds = _crop_bounds(bounds)
     shape = {"type": "MultiPolygon", "coordinates": [
         [ring + [ring[0]] for ring in [outer, *holes]]
         for outer, holes in geometry.parts(polygon)]}
@@ -225,8 +240,8 @@ def images(polygon, start=None, end=None, max_cloud=30, limit=20, dataset="hls")
                    "provider": "Microsoft Planetary Computer", "collections": collections,
                    "resolutionM": resolution,
                    "url": "https://hls.gsfc.nasa.gov/" if is_hls else "https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a"},
-        "note": "Images are selected across calendar years when the period spans multiple years, listed newest first. RGB images are cropped to the field bounding box, not masked to the polygon. "
-                "The top-level bbox describes the requested crop; sceneBbox describes the original satellite scene extent. "
+        "note": "Images are selected across calendar years when the period spans multiple years, listed newest first. RGB images include context around the field, not masked to the polygon. "
+                "The top-level bbox describes the padded image crop; sceneBbox describes the original satellite scene extent. "
                 "sceneCloudCoverPct is the whole-scene filter. Selected scenes also require at least 90% valid RGB "
                 "and 90% clear pixels inside the field, excluding clouds, cloud adjacency (HLS), shadows, snow and fill. "
                 "Quality is sampled on the native QA grid (HLS 30 m, Sentinel-2 SCL 20 m), capped at 1024 pixels per side. "
