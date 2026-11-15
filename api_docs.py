@@ -500,3 +500,32 @@ AGRO_WEATHER = {
     "responses": {422: {"description": "Invalid polygon, years outside 5 to 45, or unknown request property."},
                   502: AGRO_WEATHER_ERROR},
 }
+
+CROP_CALENDAR_TEXT = (
+    "Usual planting and maturity dates for crops around a field, from the GGCMI Phase 3 crop calendar (NASA GISS and "
+    "partners, CC BY 4.0) on a 0.5 degree grid (about 50 km).\n\n"
+    "Each crop has `plantingDay` and `maturityDay` (day of year), the same as `plantingDate` and `maturityDate` "
+    "(`MM-DD`), `growingSeasonDays`, `offSeasonDays` (365 minus the season: how long the ground is free of this crop), "
+    "`crossesNewYear` (true for crops such as winter wheat that are planted in autumn and mature the next summer) and "
+    "the `dataSource` the calendar used for that cell. Values are `null` where the calendar has none.\n\n"
+    "Crop keys: `corn`, `soybeans`, `winter_wheat`, `spring_wheat`, `barley`, `rye`, `canola`, `potatoes`, `beans`, "
+    "`peas`, `sunflower`, `sugar_beet`, `sorghum`, `millet`, `rice_first_season`, `rice_second_season`, `cotton`, "
+    "`groundnut`, `cassava`, `sugarcane`. Oats, hay and fruit are not in the calendar.\n\n"
+    "**Limits:** multi-year averages around the year 2000, not a forecast and not local variety advice. Cells where a "
+    "crop is not grown are filled in from neighbouring areas, so a date does not mean the crop is grown there. "
+    "The first request downloads the calendar files (about 3 MB) and takes a few seconds."
+)
+CROP_CALENDAR_ERROR = error("The crop calendar files could not be downloaded or read.",
+                            "GGCMI crop calendar could not be downloaded")
+CROP_CALENDAR_FIELD = {
+    "summary": "Usual planting and maturity dates around a field",
+    "description": CROP_CALENDAR_TEXT,
+    "responses": {404: error("No field has this ID in the loaded data.", "Field not found"),
+                  422: {"description": "Unknown system or crop key."}, 502: CROP_CALENDAR_ERROR, 503: FIELDS_UNAVAILABLE},
+}
+CROP_CALENDAR = {
+    "summary": "Usual planting and maturity dates around any outline",
+    "description": CROP_CALENDAR_TEXT,
+    "responses": {422: {"description": "Invalid polygon, unknown system or crop key, or unknown request property."},
+                  502: CROP_CALENDAR_ERROR},
+}

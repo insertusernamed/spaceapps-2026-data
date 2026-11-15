@@ -451,6 +451,17 @@ growing season), FAO-56 Penman-Monteith ET0, and season radiation, wind and humi
 50 km. No account. These are regional, modelled values; the latest days come from POWER's near-real-time
 stream and can read differently from the long record.
 
+## Crop calendar (GGCMI Phase 3)
+
+```sh
+curl 'http://127.0.0.1:8000/fields/<field_id>/crop-calendar?system=rainfed&crops=corn,soybeans,winter_wheat'
+```
+
+Usual planting and maturity dates for 18 crops on a 0.5 degree grid (NASA GISS and partners, CC BY 4.0), also
+at `POST /crop-calendar`. About 3 MB of files are downloaded from Zenodo on first use into
+`CROP_CALENDAR_DIR` (default `data/crop-calendar`). Dates are multi-year averages around 2000, and cells
+where a crop is not grown are filled in from other areas, so check them against local practice.
+
 ## Background North American acquisition
 
 Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.

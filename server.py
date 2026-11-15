@@ -19,9 +19,9 @@ import field_store
 import middleware
 import smap
 from app import EarthdataError, EarthdataSession, fetch_daily_point, load_credentials
-from crop_history import (AgroWeatherRequest, CropHistoryRequest, FieldBatchRequest, GreennessRequest,
+from crop_history import (AgroWeatherRequest, CropCalendarRequest, CropHistoryRequest, FieldBatchRequest, GreennessRequest,
                           ImageryRequest, SoilRequest, FieldSeasonRequest)
-from environmental import agro_weather, crops, greenness, soil, imagery, hls
+from environmental import agro_weather, crop_calendar, crops, greenness, soil, imagery, hls
 from environmental.errors import DataError
 from field_summary import FieldSummaryRequest, summarize_field
 from fields import acreage, field_map, load_fields, parse_bbox
@@ -365,3 +365,29 @@ def outline_season(request: FieldSeasonRequest) -> dict:
         return hls.season(request.polygon, request.start, request.end, retry=request.retry)
     except DataError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
+
+
+def _crop_calendar(polygon, system: str, wanted: list[str] | None) -> dict:
+    try:
+        return crop_calendar.calendar(polygon, system, wanted)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/crop-calendar", tags=["Crops"], **docs.CROP_CALENDAR_FIELD)
+def field_crop_calendar(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    system: Literal["rainfed", "irrigated"] = Query("rainfed", description="Rainfed or irrigated farming."),
+    crops: str | None = Query(None, description="Comma-separated calendar crop keys; all crops when omitted.",
+                              openapi_examples=docs.sample("corn,soybeans,winter_wheat")),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    wanted = [c.strip() for c in crops.split(",") if c.strip()] if crops else None
+    return {"id": field_id, **_crop_calendar(polygon, system, wanted)}
+
+
+@app.post("/crop-calendar", tags=["Crops"], **docs.CROP_CALENDAR)
+def outline_crop_calendar(request: CropCalendarRequest) -> dict:
+    return _crop_calendar(request.polygon, request.system, request.crops)
