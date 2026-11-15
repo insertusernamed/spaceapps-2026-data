@@ -21,7 +21,6 @@ from functools import lru_cache
 
 import requests
 
-from . import crop_patterns as patterns
 from . import geometry
 from .crop_classes import ACI_CLASSES, ACI_NOT_CROPS, CDL_CLASSES, CDL_NOT_CROPS
 from .errors import ProviderError
@@ -183,8 +182,6 @@ def _year_row(source: Source, year: int, counts) -> dict | None:
         "crop": top["name"],
         "code": top["code"],
         "isCrop": top["isCrop"],
-        "group": (group := patterns.group_of(top["name"], top["isCrop"])),
-        "groupLabel": patterns.label(group),
         "share": top["share"],
         "cropShare": round(crop_pixels / total, 3),
         "classes": [entry(code, n) for code, n in ranked[:MAX_CLASSES] if n / total >= MIN_SHARE],
@@ -251,7 +248,6 @@ def _result(source: Source | None, rows: list[dict], missing: list[int], note: s
         "distinctCrops": sorted({r["crop"] for r in crops}),
         "cropYears": len(crops),
         "unavailableYears": sorted(missing),
-        "summary": patterns.summarize(rows),
         "note": note,
     }
 

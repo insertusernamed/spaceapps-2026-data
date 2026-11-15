@@ -254,18 +254,9 @@ DAILY_POINT = {
 }
 
 CROP_HISTORY_TEXT = (
-    "**For display, read `summary`:** plain-language results a farmer can understand directly.\n"
-    "- `lastSeason`: the newest mapped year and its crop. This is last season; the current year is never mapped yet.\n"
-    "- `pattern.text`: the rotation in words, e.g. \"A 3-year rotation: corn, corn, then soybeans.\" `pattern.kind` is "
-    "`stable`, `alternating`, `rotation`, `changed` (last season broke the pattern) or `mixed`.\n"
-    "- `expectedThisYear`: the crop the pattern points to this year, with `confidence` (`high` or `medium`) and a "
-    "`reason` sentence; null when there is no clear pattern or it just changed. An estimate, not an observation.\n"
-    "- `flags.possiblyMerged` (many mixed years: the outline may cover more than one field) and "
-    "`flags.mostlyNotCropland`; `notes` explains each in a sentence. `yearsOfData` counts mapped years.\n\n"
-    "Each year also has a `group` (and `groupLabel` in plain words) that is the same in both countries (`corn`, `soybeans`, `wheat`, `other_grains`, "
-    "`canola`, `pulses`, `hay`, `pasture`, `fallow`, `vegetables`, `fruit`, `other_crops`, `natural`, `water`, "
-    "`developed`, `barren`) and `cropShare`, the share of the field under any crop. Cloud and unmapped pixels are left "
-    "out of every share.\n\n"
+    "Returns acquired crop-map observations and source metadata. Application crop grouping, rotation inference "
+    "and current-season estimates belong to the Java backend; this service does not return an inferred `summary`. "
+    "`cropShare` is the share of mapped pixels assigned to crop classes. Cloud and unmapped pixels are excluded.\n\n"
     "One entry per year with the class that covers most of the field, its `share` of the field (0–1), and up to five "
     "classes covering at least 1% each. `rotation` lists the main class per year; `distinctCrops` and `cropYears` "
     "count only crop classes, not grass, forest, water or developed land.\n\n"
@@ -283,11 +274,11 @@ _CROP_EXAMPLE = {
     "source": {"name": "AAFC Annual Crop Inventory", "url": "https://open.canada.ca/data/en/dataset/ba2645d5-4458-414d-b196-6303ac06c1c9",
                "license": "Open Government Licence - Canada", "resolutionM": 30},
     "years": [
-        {"year": 2024, "crop": "Corn for grain", "code": 147, "isCrop": True, "group": "corn", "groupLabel": "Corn", "share": 0.877, "cropShare": 0.986, "classes": [
+        {"year": 2024, "crop": "Corn for grain", "code": 147, "isCrop": True, "share": 0.877, "cropShare": 0.986, "classes": [
             {"code": 147, "name": "Corn for grain", "isCrop": True, "share": 0.877},
             {"code": 145, "name": "Winter wheat", "isCrop": True, "share": 0.06},
             {"code": 136, "name": "Oats", "isCrop": True, "share": 0.039}]},
-        {"year": 2025, "crop": "Soybeans", "code": 158, "isCrop": True, "group": "soybeans", "groupLabel": "Soybeans", "share": 0.967, "cropShare": 0.996, "classes": [
+        {"year": 2025, "crop": "Soybeans", "code": 158, "isCrop": True, "share": 0.967, "cropShare": 0.996, "classes": [
             {"code": 158, "name": "Soybeans", "isCrop": True, "share": 0.967},
             {"code": 147, "name": "Corn for grain", "isCrop": True, "share": 0.029}]},
     ],
@@ -295,16 +286,6 @@ _CROP_EXAMPLE = {
     "distinctCrops": ["Corn for grain", "Soybeans"],
     "cropYears": 2,
     "unavailableYears": [],
-    "summary": {
-        "yearsOfData": 15, "firstYear": 2011,
-        "lastSeason": {"year": 2025, "crop": "Soybeans", "group": "soybeans", "groupLabel": "Soybeans"},
-        "pattern": {"kind": "rotation", "periodYears": 3, "groups": ["corn", "soybeans"],
-                    "text": "A 3-year rotation: corn, corn, then soybeans."},
-        "expectedThisYear": {"year": 2026, "group": "corn", "crop": "Corn", "confidence": "high",
-                             "reason": "A 3-year rotation: corn, corn, then soybeans. Soybeans in 2025, so the pattern points to corn this year."},
-        "flags": {"possiblyMerged": False, "mostlyNotCropland": False},
-        "notes": ["The newest crop map is 2025 (last season); 2026 is not mapped yet."],
-    },
     "note": "Satellite classification: any single year can be wrong, especially at field edges.",
 }
 
