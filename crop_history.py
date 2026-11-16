@@ -96,6 +96,8 @@ class FieldSeasonRequest(CropHistoryRequest):
     start: date = Field(description="First observation date, inclusive.")
     end: date = Field(description="Last observation date, inclusive.")
     retry: bool = Field(False, description="Retry a completed acquisition that had failures.")
+    since: int = Field(0, ge=0, description="Skip this many observations already received.")
+    pixels: bool = Field(False, description="Include per-pixel display arrays and the field mask.")
 
 
 class AgroWeatherRequest(BaseModel):

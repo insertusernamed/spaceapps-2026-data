@@ -1,6 +1,12 @@
-"""Incremental NASA HLS acquisition: native-grid measurements, QA and shared block caches."""
+"""Incremental NASA HLS acquisition: native-grid measurements, QA, display pixels and shared block caches.
+
+Each observation reports field-level QA fractions and NDVI statistics. When at least half of
+the field is clear, it also carries small per-pixel arrays (display colour, NDVI, clear mask)
+on the native 30 m grid, so a client can draw the field exactly as the satellite saw it.
+"""
 from __future__ import annotations
 
+import base64
 import copy
 import fcntl
 import hashlib
@@ -25,8 +31,18 @@ from .errors import ProviderError, ValidationError
 STAC = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
 TOKEN_URL = "https://planetarycomputer.microsoft.com/api/sas/v1/token/"
 COLLECTIONS = {"hls2-l30": "B05", "hls2-s30": "B8A"}
-VERSION = 1
+VERSION = 2  # 2: context margin, field mask and per-observation display pixels
 BLOCK = 256
+CONTEXT_M = 150  # land shown around the field; clamped at the tile edge
+PIXEL_MIN_CLEAR = 0.5  # share of the field that must be clear before display pixels are read
+FILL = -9999
+ENCODING = {
+    "layout": "base64 bytes, row-major, top row first, grid.width x grid.height; rgb has 3 bytes per pixel",
+    "rgb": "display colour: surface reflectance 0-0.25 mapped to 0-255 with gamma 1/2.2; 0 where not imaged",
+    "ndvi": "byte = round((ndvi + 1) * 127); 255 = not clear or not valid. Water is clear, so it has a value",
+    "clear": "1 = clear by Fmask: no cloud, adjacent cloud, shadow or snow, aerosol not high. Water is clear; see waterShare",
+    "fieldMask": "0 outside the outline, 1 edge pixel inside it, 2 sample pixel used for statistics",
+}
 MAX_SCENES = 500
 MAX_PIXELS_ACROSS = 512
 MAX_ACTIVE = 8
@@ -127,7 +143,7 @@ def search(shape, start, end, refresh=False):
                 collection = item["collection"]
                 if collection not in COLLECTIONS:
                     continue
-                bands = ("Fmask", "B04", COLLECTIONS[collection])
+                bands = ("Fmask", "B04", COLLECTIONS[collection], "B03", "B02")
                 if not all(band in item["assets"] for band in bands):
                     continue
                 scene = {"id": item["id"], "collection": collection, "tile": item["id"].split(".")[2],
@@ -180,7 +196,11 @@ def tile_grid(item):
         return grid
 
 
-def field_grid(shape, grid):
+def field_grid(shape, grid, context_m=CONTEXT_M):
+    """Pixel window around the field plus a context margin, clamped to the tile.
+
+    The field itself must lie inside the tile; only the margin is clamped.
+    """
     from rasterio.features import geometry_mask
     from rasterio.transform import Affine
     from rasterio.warp import transform_geom
@@ -197,6 +217,10 @@ def field_grid(shape, grid):
         raise ValidationError("HLS field windows may be at most 15.36 km across")
     if col < 0 or row < 0 or right > grid["width"] or bottom > grid["height"]:
         return None
+    margin = math.ceil(context_m / abs(a) - 1e-6) if context_m > 0 else 0
+    col, row = max(0, col - margin), max(0, row - margin)
+    right, bottom = min(grid["width"], right + margin), min(grid["height"], bottom + margin)
+    width, height = right - col, bottom - row
     transform = Affine(a, 0, x0 + col * a, 0, e, y0 + row * e)
     inside = geometry_mask([local], (height, width), transform, invert=True)
     padded = np.pad(inside, 1)
@@ -207,7 +231,7 @@ def field_grid(shape, grid):
     interior = int(core.sum()) >= 4
     return {"col": col, "row": row, "width": width, "height": height,
             "inside": inside, "sample": core if interior else inside, "interiorOnly": interior,
-            "crs": grid["crs"], "tileTransform": grid["transform"]}
+            "crs": grid["crs"], "transform": list(transform)[:6], "tileTransform": grid["transform"]}
 
 
 def read_band(item, band, window):
@@ -246,8 +270,16 @@ def read_band(item, band, window):
     return result
 
 
+def _b64(array):
+    return base64.b64encode(np.ascontiguousarray(array).tobytes()).decode()
+
+
 def observe(item, window):
-    """Decode QA and calculate measurements; application quality categories belong to Java."""
+    """Decode QA and calculate measurements; application quality categories belong to Java.
+
+    Statistics use land pixels in the sample (core) area. Display pixels cover the whole
+    window, including the context margin, and are read only when the field is mostly clear.
+    """
     qa = read_band(item, "Fmask", window)
     inside, sample = window["inside"], window["sample"]
     imaged = qa != 255
@@ -256,26 +288,38 @@ def observe(item, window):
     fraction = lambda mask: round(float(mask[inside].mean()), 4)
     result = {"sceneId": item["id"], "date": item["datetime"][:10], "datetime": item["datetime"],
               "sensor": "Landsat" if item["collection"] == "hls2-l30" else "Sentinel-2",
-              "collection": item["collection"], "coverageShare": fraction(imaged),
+              "collection": item["collection"], "sceneCloudPct": item.get("cloud"), "coverageShare": fraction(imaged),
               "clearShare": fraction(atmospheric), "cloudShare": fraction(imaged & ((qa & 0b001110) != 0)),
               "snowShare": fraction(imaged & ((qa & 0b010000) != 0) & ((qa & 0b001110) == 0)),
               "waterShare": fraction(atmospheric & ((qa & 0b100000) != 0)),
-              "sampleClearShare": 0.0, "validPixels": 0, "ndviMean": None, "ndviP10": None, "ndviP90": None}
-    # Preserve QA for every pass; skip spectral transfers with fewer than 20% candidate land pixels.
-    if not sample.any() or float(land[sample].mean()) < 0.2:
+              "sampleClearShare": 0.0, "validPixels": 0, "ndviMean": None, "ndviP10": None, "ndviP50": None,
+              "ndviP90": None, "pixels": None}
+    display = result["clearShare"] >= PIXEL_MIN_CLEAR
+    # Preserve QA for every pass; skip spectral transfers with fewer than 20% candidate land pixels
+    # unless the field is clear enough to draw (a clear view of a pond is still a picture).
+    if not display and (not sample.any() or float(land[sample].mean()) < 0.2):
         return result
-    red_future = BANDS.submit(read_band, item, "B04", window)
-    nir_future = BANDS.submit(read_band, item, COLLECTIONS[item["collection"]], window)
-    raw_red, raw_nir = red_future.result(), nir_future.result()
+    bands = ["B04", COLLECTIONS[item["collection"]]] + (["B03", "B02"] if display else [])
+    futures = {band: BANDS.submit(read_band, item, band, window) for band in bands}
+    raw = {band: future.result() for band, future in futures.items()}
+    raw_red, raw_nir = raw["B04"], raw[COLLECTIONS[item["collection"]]]
     red, nir = raw_red.astype("float32") * 0.0001, raw_nir.astype("float32") * 0.0001
-    valid = land & (raw_red != -9999) & (raw_nir != -9999) & ((red + nir) > 0)
-    ndvi = np.divide(nir - red, nir + red, out=np.full_like(red, np.nan), where=valid)
-    valid &= np.isfinite(ndvi) & (ndvi >= -1) & (ndvi <= 1)
-    values = ndvi[valid & sample]
+    seen = atmospheric & (raw_red != FILL) & (raw_nir != FILL) & ((red + nir) > 0)
+    ndvi = np.divide(nir - red, nir + red, out=np.full_like(red, np.nan), where=seen)
+    seen &= np.isfinite(ndvi) & (ndvi >= -1) & (ndvi <= 1)
+    values = ndvi[seen & land & sample]
     if values.size:
-        result.update(ndviMean=round(float(values.mean()), 4), ndviP10=round(float(np.percentile(values, 10)), 4),
-                      ndviP90=round(float(np.percentile(values, 90)), 4), validPixels=int(values.size),
+        p10, p50, p90 = np.percentile(values, [10, 50, 90])
+        result.update(ndviMean=round(float(values.mean()), 4), ndviP10=round(float(p10), 4),
+                      ndviP50=round(float(p50), 4), ndviP90=round(float(p90), 4), validPixels=int(values.size),
                       sampleClearShare=round(float(values.size / sample.sum()), 4))
+    if display:
+        # Cloudy pixels keep their colour, so a client can show the cloud rather than a hole.
+        rgb = np.stack([raw[band] for band in ("B04", "B03", "B02")], axis=-1).astype("float32") * 0.0001
+        rgb = (np.clip(rgb / 0.25, 0, 1) ** (1 / 2.2) * 255).round().astype("uint8")
+        rgb[(raw_red == FILL) | ~imaged] = 0
+        ndvi_bytes = np.where(seen, np.round((np.clip(np.nan_to_num(ndvi), -1, 1) + 1) * 127), 255).astype("uint8")
+        result["pixels"] = {"rgb": _b64(rgb), "ndvi": _b64(ndvi_bytes), "clear": _b64(atmospheric.astype("uint8"))}
     return result
 
 
@@ -343,8 +387,14 @@ def _run(key, shape, start, end, state, refresh=False):
                 raise ValidationError("More than 500 HLS scenes match; request a shorter period")
             state["progress"]["total"] = len(selected)
             if window is not None:
+                mask = np.where(window["sample"], 2, np.where(window["inside"], 1, 0)).astype("uint8")
                 state["grid"] = {"resolutionM": 30, "fieldPixels": int(window["inside"].sum()),
-                                 "samplePixels": int(window["sample"].sum()), "interiorOnly": window["interiorOnly"]}
+                                 "samplePixels": int(window["sample"].sum()), "interiorOnly": window["interiorOnly"],
+                                 "tile": tile, "crs": window["crs"], "transform": window["transform"],
+                                 "width": window["width"], "height": window["height"],
+                                 "contextM": CONTEXT_M, "fieldMask": _b64(mask),
+                                 "areaHa": round(geometry.area_ha(shape), 2)}
+                state["encoding"] = ENCODING
                 if not window["inside"].any():
                     selected = []
                     state["progress"]["total"] = 0
@@ -357,6 +407,7 @@ def _run(key, shape, start, end, state, refresh=False):
                     pending[SCENES.submit(observe, item, window)] = item
             for _ in range(4):
                 schedule()
+            saved = 0.0
             while pending:
                 done, _ = wait(pending, timeout=10, return_when=FIRST_COMPLETED)
                 for future in done:
@@ -369,7 +420,10 @@ def _run(key, shape, start, end, state, refresh=False):
                     state["progress"]["processed"] += 1
                     schedule()
                 state["updatedAt"] = time.time()
-                _save(path, state)
+                # Records with pixels reach ~1 MB; rewrite at most once a second while running.
+                if time.monotonic() - saved >= 1 or not pending:
+                    _save(path, state)
+                    saved = time.monotonic()
             state.update(status="partial" if state["failures"] else "done", finishedAt=time.time(),
                          elapsedSeconds=round(time.monotonic() - started, 3))
             _save(path, state)
@@ -382,8 +436,34 @@ def _run(key, shape, start, end, state, refresh=False):
         _trim()
 
 
-def season(polygon, start, end, identity=None, retry=False):
+def _view(state, since=0, pixels=False):
+    """A response from a job record: observations after `since`, display arrays only on request.
+
+    Observations are appended in processing order and never reordered, so `since` = the number
+    a client already holds returns only the new ones; `count` is the total so far.
+    """
+    if state is None:
+        return None
+    observations = state.get("observations", [])
+    out = {key: value for key, value in state.items() if key != "observations"}
+    out["observations"] = observations[since:] if pixels else [
+        {key: value for key, value in obs.items() if key != "pixels"} for obs in observations[since:]]
+    out["since"], out["count"] = since, len(observations)
+    if not pixels:
+        out.pop("encoding", None)
+        if out.get("grid"):
+            out["grid"] = {key: value for key, value in out["grid"].items() if key != "fieldMask"}
+    return out
+
+
+def season(polygon, start, end, identity=None, retry=False, since=0, pixels=False):
     """Start a bounded job or return its persisted snapshot; polling never repeats acquisition."""
+    if since < 0:
+        raise ValidationError("since must be zero or more")
+    return _view(_season(polygon, start, end, identity, retry), since, pixels)
+
+
+def _season(polygon, start, end, identity=None, retry=False):
     if not date(2013, 4, 11) <= start <= end <= datetime.now(timezone.utc).date() or (end - start).days > 365:
         raise ValidationError("HLS dates must be ordered, from 2013-04-11 through today, and span at most 366 days")
     shape = _shape(polygon)

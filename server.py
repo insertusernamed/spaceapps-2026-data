@@ -338,28 +338,40 @@ def outline_imagery(request: ImageryRequest) -> dict:
     return _imagery(request.polygon, request.start, request.end, request.maxCloud, request.limit, request.dataset)
 
 
-@app.get("/fields/{field_id}/season", tags=["Imagery"], summary="Incremental HLS measurements for a field",
-         description="Starts or polls a cached acquisition job. Returns native 30 m field measurements and QA fractions; crop interpretation and display quality belong to Java.")
+SEASON_DESCRIPTION = (
+    "Starts or polls a cached acquisition job; repeat the same request while `status` is `queued` or `running`. "
+    "Returns native 30 m field measurements and QA fractions for every satellite pass. With `pixels=true`, each "
+    "observation that is at least 50% clear over the field also carries base64 per-pixel arrays (display colour, "
+    "NDVI, clear mask) over the field plus a 150 m margin, and `grid` carries the window size and `fieldMask`; "
+    "`encoding` describes the byte layouts. Pass `since` = the number of observations already held to receive only "
+    "new ones; `count` is the total so far. Crop interpretation and display quality belong to Java.")
+
+
+@app.get("/fields/{field_id}/season", tags=["Imagery"], summary="Incremental HLS measurements and pixels for a field",
+         description=SEASON_DESCRIPTION)
 def field_season(
     field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION),
     start: date = Query(..., description="First acquisition date, inclusive."),
     end: date = Query(..., description="Last acquisition date, inclusive."),
     retry: bool = Query(False, description="Retry a terminal acquisition after failed scene reads."),
+    since: int = Query(0, ge=0, description="Skip this many observations already received."),
+    pixels: bool = Query(False, description="Include per-pixel display arrays and the field mask."),
 ) -> dict:
     polygon = _field_geometry(field_id)
     if polygon is None:
         raise HTTPException(status_code=404, detail="Field not found")
     try:
-        return {"id": field_id, **hls.season(polygon, start, end, identity=field_id, retry=retry)}
+        return {"id": field_id, **hls.season(polygon, start, end, identity=field_id, retry=retry, since=since, pixels=pixels)}
     except DataError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
 
 
-@app.post("/field-season", tags=["Imagery"], summary="Incremental HLS measurements for an outline",
-          description="Acquires QA and numerical HLS observations incrementally over an explicit period. Repeat the same request to poll; fields share cached native raster blocks.")
+@app.post("/field-season", tags=["Imagery"], summary="Incremental HLS measurements and pixels for an outline",
+          description=SEASON_DESCRIPTION + " Fields share cached native raster blocks.")
 def outline_season(request: FieldSeasonRequest) -> dict:
     try:
-        return hls.season(request.polygon, request.start, request.end, retry=request.retry)
+        return hls.season(request.polygon, request.start, request.end, retry=request.retry,
+                          since=request.since, pixels=request.pixels)
     except DataError as error:
         raise HTTPException(status_code=error.status, detail=str(error)) from error
 

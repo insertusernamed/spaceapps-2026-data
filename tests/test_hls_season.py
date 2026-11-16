@@ -18,7 +18,8 @@ class HlsMeasurementsTest(unittest.TestCase):
     def measure(self, qa, red=None, nir=None, collection="hls2-l30"):
         qa = np.array([qa], dtype="uint8")
         arrays = {"Fmask": qa, "B04": np.array([red if red is not None else [1000] * qa.size]),
-                  hls.COLLECTIONS[collection]: np.array([nir if nir is not None else [3000] * qa.size])}
+                  hls.COLLECTIONS[collection]: np.array([nir if nir is not None else [3000] * qa.size]),
+                  "B03": np.full(qa.shape, 800), "B02": np.full(qa.shape, 500)}
         window = {"inside": np.ones_like(qa, dtype=bool), "sample": np.ones_like(qa, dtype=bool)}
         with patch.object(hls, "read_band", side_effect=lambda item, band, grid: arrays[band]) as reader:
             result = hls.observe({**ITEM, "collection": collection}, window)
@@ -34,13 +35,39 @@ class HlsMeasurementsTest(unittest.TestCase):
         self.assertEqual(result["snowShare"], 0.1)
         self.assertEqual(result["waterShare"], 0.1)
         self.assertCountEqual(bands, ["Fmask", "B04", "B05"])
+        self.assertIsNone(result["pixels"])  # 40% clear: below the display threshold
 
-    def test_snow_and_water_passes_skip_spectral_transfers(self):
-        for flag in (2, 16, 32, 192, 255):
+    def test_cloud_snow_and_fill_passes_skip_spectral_transfers(self):
+        for flag in (2, 16, 192, 255):
             with self.subTest(flag=flag):
                 result, bands = self.measure([flag] * 10)
                 self.assertIsNone(result["ndviMean"])
+                self.assertIsNone(result["pixels"])
                 self.assertEqual(bands, ["Fmask"])
+
+    def test_clear_water_is_drawn_but_not_counted_as_land(self):
+        result, bands = self.measure([32] * 10)
+        self.assertIsNone(result["ndviMean"])
+        self.assertEqual(result["waterShare"], 1.0)
+        self.assertCountEqual(bands, ["Fmask", "B04", "B05", "B03", "B02"])
+        self.assertIsNotNone(result["pixels"])
+
+    def test_clear_pass_returns_decodable_display_pixels(self):
+        import base64
+        qa = [0] * 8 + [2, 255]
+        result, bands = self.measure(qa, red=[1000] * 8 + [1000, -9999], nir=[3000] * 10)
+        self.assertCountEqual(bands, ["Fmask", "B04", "B05", "B03", "B02"])
+        self.assertEqual(result["ndviP50"], 0.5)
+        decode = lambda key: np.frombuffer(base64.b64decode(result["pixels"][key]), dtype="uint8")
+        rgb, ndvi, clear = decode("rgb").reshape(-1, 3), decode("ndvi"), decode("clear")
+        self.assertEqual(rgb.shape, (10, 3))
+        np.testing.assert_array_equal(clear, [1] * 8 + [0, 0])
+        self.assertEqual(ndvi[0], round(1.5 * 127))
+        self.assertEqual(list(ndvi[8:]), [255, 255])  # cloud and fill have no NDVI
+        expected = round((0.1 / 0.25) ** (1 / 2.2) * 255)
+        self.assertEqual(rgb[0, 0], expected)
+        self.assertGreater(rgb[8, 0], 0)  # cloudy pixels keep their colour
+        np.testing.assert_array_equal(rgb[9], [0, 0, 0])  # not imaged
 
     def test_sentinel_uses_narrow_nir_and_negative_land_values_are_preserved(self):
         result, bands = self.measure([0] * 4, red=[3000] * 4, nir=[1000] * 4, collection="hls2-s30")
@@ -54,13 +81,39 @@ class HlsMeasurementsTest(unittest.TestCase):
                    [[120, 120], [180, 120], [180, 180], [120, 180], [120, 120]]]]}
         geographic = transform_geom("EPSG:32617", "EPSG:4326", local)
         grid = {"crs": "EPSG:32617", "transform": [30, 0, 0, 0, -30, 300], "width": 10, "height": 10}
-        window = hls.field_grid(geographic, grid)
+        window = hls.field_grid(geographic, grid, context_m=0)
         self.assertEqual(window["inside"].sum(), 96)
         self.assertFalse(window["inside"][4, 4])
         self.assertTrue(window["interiorOnly"])
         self.assertLess(window["sample"].sum(), window["inside"].sum())
         self.assertNotEqual(hls._key(geographic, date(2025, 1, 1), date(2025, 12, 31)),
                             hls._key({**geographic, "coordinates": [[geographic["coordinates"][0][0]]]}, date(2025, 1, 1), date(2025, 12, 31)))
+
+    def test_context_margin_is_added_and_clamped_at_the_tile_edge(self):
+        from rasterio.warp import transform_geom
+        local = {"type": "Polygon", "coordinates": [[[60, 600], [300, 600], [300, 840], [60, 840], [60, 600]]]}
+        geographic = hls._shape(transform_geom("EPSG:32617", "EPSG:4326", local))
+        grid = {"crs": "EPSG:32617", "transform": [30, 0, 0, 0, -30, 900], "width": 30, "height": 30}
+        window = hls.field_grid(geographic, grid, context_m=150)
+        # Field covers columns 2-9 and rows 2-9; a five-pixel margin is clamped to 0 on the top and left.
+        self.assertEqual((window["col"], window["row"], window["width"], window["height"]), (0, 0, 15, 15))
+        self.assertEqual(window["inside"].sum(), 64)
+        self.assertEqual(window["transform"], [30, 0, 0, 0, -30, 900])
+        self.assertIsNone(hls.field_grid(geographic, {**grid, "width": 5}, context_m=150))
+
+    def test_view_returns_new_observations_and_hides_pixels_unless_asked(self):
+        state = {"status": "running", "grid": {"width": 2, "fieldMask": "AAEC"}, "encoding": hls.ENCODING,
+                 "observations": [{"sceneId": "a", "pixels": {"rgb": "x"}}, {"sceneId": "b", "pixels": None}]}
+        lean = hls._view(state, since=1)
+        self.assertEqual(lean["observations"], [{"sceneId": "b"}])
+        self.assertEqual((lean["since"], lean["count"]), (1, 2))
+        self.assertNotIn("fieldMask", lean["grid"])
+        self.assertNotIn("encoding", lean)
+        full = hls._view(state, pixels=True)
+        self.assertEqual(full["observations"][0]["pixels"], {"rgb": "x"})
+        self.assertEqual(full["grid"]["fieldMask"], "AAEC")
+        self.assertIn("fieldMask", state["grid"])  # the stored record is not modified
+        self.assertEqual(hls._view(state, since=5)["observations"], [])
 
     def test_neighbouring_windows_reuse_a_native_block(self):
         from rasterio.io import MemoryFile
@@ -78,7 +131,8 @@ class HlsMeasurementsTest(unittest.TestCase):
             self.assertEqual(remote.call_count, 1)
 
     def test_polling_keeps_completed_job_and_failed_scene_explicit(self):
-        window = {"inside": np.ones((2, 2), dtype=bool), "sample": np.ones((2, 2), dtype=bool), "interiorOnly": False}
+        window = {"inside": np.ones((2, 2), dtype=bool), "sample": np.ones((2, 2), dtype=bool), "interiorOnly": False,
+                  "crs": "EPSG:32617", "transform": [30, 0, 0, 0, -30, 60], "width": 2, "height": 2}
         with tempfile.TemporaryDirectory() as cache, patch.object(hls, "cache_dir", return_value=Path(cache)), \
              patch.object(hls, "search", return_value=[ITEM]) as catalogue, patch.object(hls, "tile_grid"), \
              patch.object(hls, "field_grid", return_value=window), patch.object(hls, "observe", side_effect=RuntimeError("read failed")):
@@ -117,12 +171,16 @@ class HlsApiTest(unittest.TestCase):
         import server
         client = TestClient(server.app)
         with patch.object(server, "_field_geometry", return_value=SHAPE), patch.object(hls, "season", return_value={"status": "running", "progress": {"processed": 3, "total": 20}}) as season:
-            response = client.get("/fields/field-1/season", params={"start": "2025-01-01", "end": "2025-12-31", "retry": True})
+            response = client.get("/fields/field-1/season", params={"start": "2025-01-01", "end": "2025-12-31", "retry": True,
+                                                                   "since": 4, "pixels": True})
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.json()["progress"], {"processed": 3, "total": 20})
             self.assertEqual(response.json()["id"], "field-1")
-            season.assert_called_once_with(SHAPE, date(2025, 1, 1), date(2025, 12, 31), identity="field-1", retry=True)
+            season.assert_called_once_with(SHAPE, date(2025, 1, 1), date(2025, 12, 31), identity="field-1", retry=True,
+                                           since=4, pixels=True)
         with patch.object(server, "_field_geometry", return_value=None):
             self.assertEqual(client.get("/fields/missing/season?start=2025-01-01&end=2025-12-31").status_code, 404)
         self.assertEqual(client.get("/fields/field-1/season?start=nonsense&end=2025-12-31").status_code, 422)
+        with patch.object(server, "_field_geometry", return_value=SHAPE):
+            self.assertEqual(client.get("/fields/field-1/season?start=2025-01-01&end=2025-12-31&since=-1").status_code, 422)
         self.assertEqual(client.post("/field-season", json={"polygon": SHAPE, "start": "2025-12-31", "end": "2025-01-01"}).status_code, 422)
