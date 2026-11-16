@@ -242,6 +242,21 @@ SUMMARY = {
     },
 }
 
+SUMMARY_FIELD = {
+    "summary": "Environmental summary of a stored field",
+    "description": (
+        "The same summary as `POST /field-summary`, for a field from `/fields` by its ID, with the default years "
+        "(2015–2024) and growing season. The response also has the field's `id`. Use the POST route to choose the "
+        "period or season.\n\n" + SUMMARY["description"].split("\n\n", 1)[1]
+    ),
+    "responses": {
+        404: error("No field has this ID in the loaded data.", "Field not found"),
+        422: {"description": "Unknown weatherSource, the stored outline cannot be summarized, or no usable weather."},
+        502: SUMMARY["responses"][502],
+        503: FIELDS_UNAVAILABLE,
+    },
+}
+
 DAILY_POINT = {
     "summary": "Raw NASA POWER daily data for a point",
     "description": (

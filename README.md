@@ -173,6 +173,8 @@ its own static tile contract. Fetch each viewport, then request acreage on click
 ## Field environmental summary
 
 `POST /field-summary` accepts the geometry of a selected field from `/fields`.
+`GET /fields/{field_id}/summary` returns the same summary for a stored field by ID,
+with the default years and season (optional `weatherSource`).
 It returns area and centroid, the weather sampling coordinate, climate indicators,
 seasonal water balance, frost dates, monthly climate averages, data coverage,
 terrain statistics, and source metadata. Crops are covered by the crop history

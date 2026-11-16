@@ -143,7 +143,34 @@ class TestFieldSummary(unittest.TestCase):
         self.assertIsNone(response.json()["water"]["water_stress_index"])
         self.assertEqual(response.json()["coverage"]["missing_precip_days"], 365)
 
+    def test_stored_field_summary_by_id(self):
+        with patch.object(server, "_field_geometry", return_value=POLYGON) as lookup:
+            response = self.client.get("/fields/field-1/summary?weatherSource=power")
+        self.assertEqual(response.status_code, 200, response.text)
+        result = response.json()
+        lookup.assert_called_once_with("field-1")
+        self.assertEqual(result["id"], "field-1")
+        self.assertEqual(result["weatherSource"], "power")
+        self.assertEqual(result["period"], {"start": "20150101", "end": "20241231"})
+        self.assertGreater(result["field"]["areaHa"], 0)
+        self.assertEqual(len(result["monthly"]), 12)
+
+    def test_stored_field_summary_errors(self):
+        with patch.object(server, "_field_geometry", return_value=None):
+            self.assertEqual(self.client.get("/fields/missing/summary").status_code, 404)
+        with patch.object(server, "_field_geometry", return_value=POLYGON):
+            self.assertEqual(self.client.get("/fields/field-1/summary?weatherSource=goes").status_code, 422)
+        flat = {"type": "Polygon", "coordinates": [[[-91.94, 41.36], [-91.93, 41.36], [-91.94, 41.36]]]}
+        with patch.object(server, "_field_geometry", return_value=flat):
+            response = self.client.get("/fields/field-1/summary")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["detail"], "The stored field outline cannot be summarized")
+        self.weather.side_effect = requests.ConnectionError("down")
+        with patch.object(server, "_field_geometry", return_value=POLYGON):
+            self.assertEqual(self.client.get("/fields/field-1/summary?weatherSource=power").status_code, 502)
+
     def test_swagger_exposes_only_new_summary_route(self):
         schema = self.client.get("/openapi.json").json()
         self.assertIn("/field-summary", schema["paths"])
+        self.assertIn("/fields/{field_id}/summary", schema["paths"])
         self.assertIn("FieldSummaryRequest", schema["components"]["schemas"])

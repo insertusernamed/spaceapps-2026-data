@@ -10,6 +10,7 @@ from pathlib import Path
 
 import requests
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import ValidationError
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
@@ -174,6 +175,25 @@ def field_coverage() -> dict:
 def field_summary(request: FieldSummaryRequest) -> dict:
     try:
         return summarize_field(request)
+    except DataError as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
+
+
+@app.get("/fields/{field_id}/summary", tags=["Environment"], **docs.SUMMARY_FIELD)
+def stored_field_summary(
+    field_id: str = PathParam(description=docs.FIELD_ID_DESCRIPTION, openapi_examples=docs.sample(docs.EXAMPLE_FIELD_ID)),
+    weatherSource: Literal["auto", "daymet", "power"] = Query(
+        "auto", description="auto picks NASA Daymet or NASA POWER as for POST /field-summary; daymet or power forces one."),
+) -> dict:
+    polygon = _field_geometry(field_id)
+    if polygon is None:
+        raise HTTPException(status_code=404, detail="Field not found")
+    try:
+        request = FieldSummaryRequest(polygon=polygon, weatherSource=weatherSource)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail="The stored field outline cannot be summarized") from exc
+    try:
+        return {"id": field_id, **summarize_field(request)}
     except DataError as exc:
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
