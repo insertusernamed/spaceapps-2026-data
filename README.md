@@ -1,626 +1,88 @@
-# SpaceApps 2026 Data API
-
-Field boundaries, acreage and environmental summaries, plus a NASA POWER daily
-point client. The standalone client loads Earthdata credentials from `.env`;
-field selection and environmental summary routes do not need them.
-
-## Setup
-
-### Windows (PowerShell)
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt -r pipeline/requirements.txt
-.\.venv\Scripts\python.exe -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload
-```
-
-Open <http://127.0.0.1:8000/docs>. The API serves the committed 300-field
-preview without credentials or additional downloads. Using the virtual
-environment's Python directly avoids PowerShell activation-policy changes.
-Stop the server with Ctrl+C.
-
-Run the tests with `.\.venv\Scripts\python.exe -m unittest discover tests`.
-For NASA login and SMAP features, run
-`.\.venv\Scripts\python.exe app.py init-env` to save your Earthdata credentials.
-
-The background North American importer currently requires Unix's `fcntl` module;
-run that worker on Linux or WSL. On Windows, the test suite also has known
-failures involving Unix file permissions and cleanup of a locked soil raster.
-
-### macOS / Linux
-
-```sh
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python app.py init-env        # prompts, writes .env (mode 600)
-```
-
-`.env` is gitignored; `.env.example` shows the two variable names.
-
-## Use
-
-```sh
-python app.py check-auth      # verifies the Earthdata login
-python app.py fetch --lat 34.05 --lon -118.24 --start 20240101 --end 20240107
-```
-
-`fetch` prints the raw POWER JSON. Edit `fetch_daily_point` in `app.py` to add
-parameters or switch to the monthly/climatology endpoints.
-
-## Docker
-
-```sh
-docker build -t spaceapps-data .
-docker run --rm -p 8091:8091 spaceapps-data
-```
-
-Swagger UI is at <http://localhost:8091/docs>. Without a database the image serves
-the committed Orillia preview. To serve an indexed build, mount the directory that
-holds it (so SQLite WAL/SHM files are shared) and set `FIELDS_DB`:
-
-```sh
-docker run --rm -p 8091:8091 -v "$PWD/data:/var/lib/spaceapps-fields" \
-  -e FIELDS_DB=/var/lib/spaceapps-fields/fields.sqlite spaceapps-data
-```
-
-The container runs as UID/GID 1000; the mounted directory must be writable by it.
-Credentials are never built into the image; mount `.env` at `/app/.env` for
-`/daily-point`.
-
-## Tests
-
-```sh
-python -m unittest discover tests
-```
-
-## Field selection API
-
-Run `python -m uvicorn server:app --host 127.0.0.1 --port 8000 --reload`.
-Swagger UI: <http://127.0.0.1:8000/docs> (the root URL redirects there). Python
-changes restart the development server automatically; refresh Swagger to load
-changed routes. Route descriptions, tags and examples shown in Swagger live in
-`api_docs.py`.
-
-- `GET /health` answers 200 whenever the process is running.
-- `GET /ready` answers 200 when the configured field data can be read, and 503
-  otherwise. It does not contact NASA POWER or terrain providers, so their
-  outages do not mark the API unready.
-
-- `GET /fields?bbox=-79.7,44.35,-79.05,44.85&limit=500` returns WGS84 field
-  outlines in the visible map area, without crop information. Bbox order is
-  west,south,east,north. Split boxes crossing the antimeridian into two requests.
-- Follow `nextCursor` using the same bbox and limit while `hasMore` is true.
-  Pages default to 50 features, capped at 2,000. Changing the viewport resets
-  the cursor to zero. A missing bbox defaults to the Orillia area for the database.
-- Each outline's `properties` carry quick field facts for a sidebar, computed from
-  the outline: `areaHa`, `areaAcres`, `perimeterM`, `lengthM`, `widthM`,
-  `orientationDeg` (long side's bearing from north, 0-179), `compactness` (0-1,
-  circle 1), `holes`, `parts`, `centroid` ([lon, lat]) and `sourceYear`. They are
-  computed once per field on first request and cached (about 0.05 ms a field).
-- Coordinates are cut to 6 decimal places (about 0.1 m). Responses over 1 KB are
-  gzip-compressed for clients that send `Accept-Encoding: gzip`.
-- `GET /fields/{field_id}` returns estimated hectares and acres for a clicked ID.
-  Unknown IDs return 404.
-- `GET /field-coverage` reports the loaded region, field count, source, licence,
-  completed geographic partitions and whether acquisition is still building.
-
-These routes need no Earthdata credentials. Each source polygon represents a
-**predicted agricultural field**, not a whole farm, ownership parcel or farm
-business. Source coverage and model errors mean this is not an exhaustive farm
-registry. IDs refer to one source edition/year and should not be matched across years.
-
-### Browser access and request IDs
-
-CORS is off by default: browsers on other origins cannot call the API directly,
-so front ends call it through a same-origin proxy (as the Vite dev server does).
-To enable it, set `CORS_ORIGINS` to a comma-separated list of origins, for example
-`CORS_ORIGINS=https://app.example.org,localhost`. The word `localhost` allows any
-`localhost`/`127.0.0.1` port, and `*` allows any origin.
-
-Every response carries an `X-Request-Id` header. A caller may send its own ID
-(up to 128 letters, digits or `._:-`); otherwise one is generated. Each request
-is logged with its ID, method, path, status and duration.
-
-### Load Orillia, then Ontario
-
-The completed local build contains **4,105 Orillia-area fields** and
-**353,809 fields across Ontario** (2025 source edition, built 2026-11-14).
-These counts describe detected field units, not numbers of farm businesses.
-The full Ontario index is approximately 1.9 GB; plan for additional space for
-the downloaded extracts. See [coverage manifest](data/fields.coverage.json).
-
-A 300-field Orillia-area preview is committed for quick startup. The full spatial
-index is generated locally from public sources, rather than committed as a large
-binary. Install acquisition dependencies and build the first region:
-
-```sh
-pip install -r pipeline/requirements.txt
-python pipeline/build_fields.py orillia
-```
-
-Then expand the same database to Ontario:
-
-```sh
-python pipeline/build_fields.py ontario
-```
-
-The pipeline reads 2025 field predictions from Fields of the World, Global 2nd
-Edition. Ontario is filtered against its provincial boundary across UTM zones
-15–18, preserving complete intersecting field outlines. Invalid/empty geometries
-are excluded. Previously imported IDs are deduplicated. Completed remote extracts
-are reused on rerun; `/field-coverage` distinguishes a partial build from completion.
-The Orillia region is a surrounding agricultural area, bbox
-`[-79.7,44.35,-79.05,44.85]`, rather than just city limits.
-
-The API automatically uses `data/fields.sqlite` when present. SQLite RTree queries
-read only matching outlines rather than loading the province into Python memory.
-`FIELDS_DB=/absolute/path/fields.sqlite` selects another index. A server restart
-is not needed after a build. Keep the database unchanged while traversing pages;
-a rebuild can change pagination positions.
-
-For a custom small dataset, `FIELDS_FILE=/absolute/path/fields.geojson` overrides
-the default database (an explicit `FIELDS_DB` takes precedence). Use a WGS84
-FeatureCollection of closed Polygon/MultiPolygon features with unique feature
-`id` or `properties.id`. The GeoJSON adapter strips all properties except ID;
-the indexed source additionally exposes its `score` (0–100 mean model score,
-not a calibrated probability). Missing/invalid configured data returns 503.
-
-Area is estimated from complete outlines, subtracting holes, and rounded to two
-decimals; it is not surveyed acreage. Source, licence and limitations are documented
-in [data/README.md](data/README.md). The API serves GeoJSON; a PMTiles client needs
-its own static tile contract. Fetch each viewport, then request acreage on click.
-
-## Field environmental summary
-
-`POST /field-summary` accepts the geometry of a selected field from `/fields`.
-`GET /fields/{field_id}/summary` returns the same summary for a stored field by ID,
-with the default years and season (optional `weatherSource`).
-It returns area and centroid, the weather sampling coordinate, climate indicators,
-seasonal water balance, frost dates, monthly climate averages, data coverage,
-terrain statistics, and source metadata. Crops are covered by the crop history
-routes below.
-No Earthdata credentials are needed.
-
-Example request (also available in Swagger):
-
-```json
-{
-  "polygon": {
-    "type": "Polygon",
-    "coordinates": [[[-91.94, 41.36], [-91.93, 41.36], [-91.93, 41.37], [-91.94, 41.37], [-91.94, 41.36]]]
-  },
-  "period": {"start": "2023-01-01", "end": "2023-12-31"},
-  "season": {"months": [5, 6, 7, 8, 9]},
-  "weatherGridDeg": 0.05
-}
-```
-
-`polygon` is required: a GeoJSON Polygon, MultiPolygon, Feature, or a ring of
-`[longitude, latitude]` coordinates. Defaults are 2015–2024 and May–September
-north of the equator, November–March south of it. Dates accept YYYY-MM-DD or
-YYYYMMDD; they must be ordered, within 1981 through today, and span at most
-45 years. Custom season months must be consecutive and can cross December.
-Unknown request properties and invalid polygons/dates return 422.
-
-Weather comes from NASA Daymet (1 km, North America, 1980 to the last complete
-year) or NASA POWER (about 50 km, global, up to today). `weatherSource` is `auto`
-by default, which picks Daymet when it covers the field and period and otherwise
-POWER; `daymet` or `power` forces one (forcing Daymet where it cannot apply
-returns 422). If Daymet fails under `auto`, POWER is used and
-`layers.weather.fallbackFrom` says so. Daymet samples the field's ~1 km cell.
-For POWER, `weatherGridDeg` chooses a sampling coordinate on a 0.05-degree grid
-by default; zero uses the outline's centre. It does **not** provide weather at
-that finer resolution. Weather and elevation downloads are cached in memory, so
-repeat requests for a field are fast. Temperature-based Hargreaves ET0
-(FAO-56) estimates reference evapotranspiration, not actual crop water use.
-Growing-degree days use a 10 C base. `chu_available_median` gives Ontario crop
-heat units (the corn and soybean variety rating scale), counted each year from
-three days averaging at least 12.8 C (no earlier than May 1) to the first -2 C
-fall frost; it reflects the requested years. A year/season needs at least 90% valid
-observations to contribute to its statistic; unavailable statistics are `null`.
-Full calendar years are recommended for annual summaries. Monthly values are
-climatological averages over the requested years, not a dated time series.
-
-Terrain uses NASA SRTM 30 m elevation via OpenTopoData, sampled within the
-outline. Slope and erosion ratings are approximate context rather than surveyed
-measurements. Weather and terrain are fetched concurrently. A terrain failure
-returns `terrain: null` with an error in `layers.terrain` while preserving weather;
-a weather provider failure returns 502. First requests depend on upstream latency.
-
-Install test dependencies with `pip install -r requirements-dev.txt`, then run
-`python -m unittest discover tests -v`.
-
-## SMAP soil moisture layer
-
-The acquisition command uses the same `EARTHDATA_USERNAME` and
-`EARTHDATA_PASSWORD` as the Python setup above. It reads `.env` (or the existing
-local `.env.` filename). Credentials remain on the backend.
-
-```sh
-source .venv/bin/activate
-pip install -r requirements.txt
-python app.py fetch-smap
-# Optional date/region; negative bbox values need the equals sign:
-python app.py fetch-smap --date 2025-01-01 --bbox=-79.7,44.35,-79.05,44.85
-```
-
-Defaults to the Orillia field-preview region and the latest available 3-hour
-interval. An explicit date selects the latest interval that day, not a daily
-average. `earthaccess.open()` opens an authenticated, seekable remote HDF5
-stream. The converter reads coordinate axes and regional slices of the two
-soil moisture variables through that stream. It does not save a global HDF5
-file locally. HDF5 chunks and caching determine the actual bytes transferred;
-streaming can still read more data than the requested pixels. Only the regional
-GeoJSON is saved. The regional result replaces
-`data/smap/soil-moisture.geojson` atomically after successful conversion; failed
-acquisition preserves the previous layer. Re-run to refresh it. There is no
-scheduled refresh. Regions are limited to 10 by 10 degrees per fetch.
-
-`GET /soil-moisture` streams the latest Orillia-area data through Earthaccess
-and creates the GeoJSON automatically when its cache is missing. Older response
-schemas are upgraded while preserving the cached region and day. The first
-request requires Earthdata credentials and can take longer; subsequent requests
-serve the cache without contacting NASA. To choose another region or date, or
-refresh an existing cache, use `python app.py fetch-smap`. `SMAP_FILE` selects
-the cache path for both acquisition and serving. Python 3.12 is recommended;
-newer interpreters may need native build tools for HDF5 dependencies.
-For Docker, rebuild the image after dependency changes and mount `.env` at
-`/app/.env` (or pass the two Earthdata environment variables). Mount a writable
-layer directory at `/app/data/smap` to retain the cache across container changes
-or set `SMAP_FILE` to a file on your existing data volume. The frontend's Vite
-proxy exposes the endpoint as `/api/soil-moisture`; the map can use the response
-as a MapLibre GeoJSON source. A visual map toggle is not included.
-
-Each feature is one native EASE-Grid cell transformed to a WGS84 polygon.
-Feature properties retain NASA variable names:
-
-| Properties | Meaning / units |
-| --- | --- |
-| `sm_surface`, `sm_rootzone`, `sm_profile` | Moisture in m³/m³: 0–5 cm, 0–100 cm, and surface to model bedrock |
-| `sm_surface_wetness`, `sm_rootzone_wetness`, `sm_profile_wetness` | Relative saturation, 0–1 |
-| `sm_rootzone_pctl`, `sm_profile_pctl` | Seasonal moisture percentiles, 0–100; not water content percentages |
-| `surface_temp`, `soil_temp_layer1` through `soil_temp_layer6` | Model temperatures in kelvin; subtract 273.15 for Celsius |
-| `soil_water_infiltration_flux`, `overland_runoff_flux`, `baseflow_flux`, `land_evapotranspiration_flux` | Water flux rates in kg m⁻² s⁻¹; not daily totals |
-| `land_fraction_saturated`, `land_fraction_wilting` | Fractions of grid-cell land area saturated/wilting and snow-free, 0–1 |
-| `clsm_poros`, `clsm_wp` | Static land model porosity and wilting point, m³/m³ |
-| `mwrtm_clay`, `mwrtm_sand` | Static microwave-model clay and sand fractions, 0–1 |
-
-`metadata.variables` documents units, descriptions, source product, and whether
-each variable is static. The legacy `metadata.units` applies to moisture only.
-Static properties are streamed from SPL4SMLM matching the geophysical filename's
-science version and checked against its coordinate grid. `metadata.soil_constants`
-records that file's provenance; these are model inputs, not soil test results.
-Missing values are `null`; `metadata.missing_variables` lists absent datasets.
-Cells missing both core moisture variables are omitted. The previous cache is
-preserved if either product cannot be acquired or their grids do not match.
-Metadata includes the actual time interval, source filename, acquisition time,
-resolution and DOI. These are model-assimilated 9 km grid values, not individual
-field measurements. Ancillary dynamic fields have different validation status
-from the core soil moisture variables.
-The cache covers only the requested region; it does not expand when panning.
-
-Sources: [SPL4SMGP Version 8](https://nsidc.org/data/spl4smgp/versions/8),
-[CMR API](https://cmr.earthdata.nasa.gov/search/site/docs/search/api.html),
-[Earthaccess](https://earthaccess.readthedocs.io/en/latest/api/).
-Use the product's required citation when publishing results.
-
-## Crop history
-
-`GET /fields/{field_id}/crop-history` returns what was planted in a field each
-year; `POST /crop-history` with `{"polygon": ...}` does the same for any outline.
-Each year reports the class covering most of the field, its share (0–1), and up
-to five classes covering at least 1%. `rotation` lists the main class per year.
-Crop group normalization, rotation inference, current-season estimates and display summaries are
-computed by the Java application backend. Python returns provider class names,
-class shares, source metadata and unavailable years only. It never substitutes
-last year's crop for a missing current-season estimate. Cloud pixels are excluded
-from the mapped class shares.
-
-Canada uses the AAFC Annual Crop Inventory (Ontario from 2011, other provinces
-from 2009); the United States uses the USDA NASS Cropland Data Layer (from 2008).
-Both are 30 m satellite classifications that need no account, and the newest
-published year is detected automatically. One request per year summarises every
-map pixel inside the outline, so a field takes about a second the first time and
-is cached afterwards. Class names are each provider's own. Any single year can be
-misclassified, especially at field edges. Locations outside Canada and the United
-States, including Mexico, return no years. Legends are in
-`environmental/crop_classes.py`.
-
-For several fields at once (for example a box selection), `POST /fields/crop-history`
-with `{"ids": [...]}` accepts up to 100 field IDs. Outlines are read in one query
-and fields run in parallel, while the service keeps at most 8 requests in flight to
-the crop map services across all callers. `results` follows the order of `ids`
-(duplicates answered once); each entry has `status: ok` with its `history`, or
-`status: error` with a `code` (404 unknown ID, 502 provider failure) and `detail`.
-One failed field never fails the batch, so a valid request returns 200; check `failed`.
-
-## NASA HLS v2 field imagery
-
-For frontend display, use an `images[].imageUrl` returned by the imagery routes
-as the image source. These links return images cropped around the field with surrounding context.
-
-`GET /fields/{field_id}/imagery` returns NASA Harmonized Landsat Sentinel-2
-v2.0 RGB image links from both L30 and S30 collections via Microsoft Planetary Computer. No credentials or new
-dependencies are needed. For example:
-
-```text
-/fields/ftw-2025-17TPK_0_0-13020/imagery?start=2025-06-01&end=2025-09-01&maxCloud=30&limit=6
-```
-
-For a drawn outline, use `POST /imagery` with `{"polygon": ...}` and optional
-`start`, `end`, `maxCloud`, `limit` and `dataset` properties.
-`dataset` defaults to `hls` (30 m); use `dataset=sentinel-2` on GET requests or
-`"dataset": "sentinel-2"` in POST bodies for native Sentinel-2 RGB at 10 m. The polygon accepts the same
-formats as `/crop-history`. Both routes are available in Swagger at `/docs`.
-
-Each entry in `images` includes `imageUrl` (a directly displayable PNG),
-`datetime`, `sceneId`, `collection`, `platform`, `sceneCloudCoverPct`, and `sceneUrl` (STAC
-metadata). The response includes the padded image crop `bbox` and each image
-includes its original `sceneBbox`, both WGS84 west,south,east,north.
-Use the image URL in an HTML image element for a field photo; render the field
-outline separately if needed. Image crops pad each edge by the full field span (at least 180 m),
-including surrounding land; they are not polygon-masked.
-Crops are capped at 1024 pixels, and small crops are not enlarged. The external
-provider renders images on demand; catalogue success does not guarantee image
-rendering availability.
-
-Searches default to the full archive hosted by Planetary Computer:
-**2020-01-01 through today for HLS**, or **2015-06-27 through today for native
-Sentinel-2**. These are the provider collection start dates, not mission launch
-dates; actual coverage depends on the field. Explicit multi-year ranges are
-supported. Dates must be ordered and cannot extend into the future.
-
-The default and maximum `limit` is 20. For multi-year searches, slots are
-allocated evenly across calendar years. When there are fewer slots than years,
-the selected years span the range, including both endpoints (a single slot uses
-the most recent year). Up to eight candidates per year are sampled across dates
-and checked for field quality; a year without a passing candidate can leave a
-gap. Single-year searches examine newest candidates first, with a 40-candidate
-budget and catalogue pagination. Returned images remain newest first; the
-frontend sorts them chronologically for its slider. This is a representative
-history, not every historical overpass.
-
-`maxCloud` (0–100, default 30) remains a coarse whole-scene filter. Selection then
-reads HLS Fmask or native Sentinel-2 SCL plus RGB data over the actual polygon,
-including holes. Crop padding does not expand the QA polygon. At least **90% of sampled field pixels must have valid RGB** and
-**90% must also be clear**. Clouds, shadows, snow and missing coverage are
-excluded; HLS cloud-adjacent pixels are excluded too. Native SCL checks also
-exclude dark/shadowed and unclassified pixels. Water remains eligible for viewing.
-QA uses its native grid (HLS 30 m, Sentinel-2 SCL 20 m), capped at 1024 pixels per
-side for large outlines. Tiny fields containing no QA pixel centres are rejected
-rather than using surrounding bounding-box pixels. The rendered PNG itself is
-not quality-masked, so an accepted scene can still contain up to 10% unusable
-field pixels. Quality flags are estimates, not a guarantee of cloud-free imagery.
-
-Each image includes `fieldQuality` counts and `validShare`, `clearShare`,
-`cloudShare`, `shadowShare` and `sampled`. The response reports `scenesChecked`,
-`scenesUnreadable`, `yearsWithoutClearImages`, `yearsUnreadable`, `selection` and
-`qualityFilter`. The Java API currently forwards the selected images, period and
-selection note; these additional diagnostics are available directly from this
-data API. Unreadable assets are skipped, but an entirely unreadable search fails
-with 502. Successful and rejected QA measurements are cached in memory; failures
-remain retryable. Up to four scenes can read raster assets concurrently across
-requests.
-
-No passing sampled scene returns 200 with an empty `images` list. `hasMore`
-includes unchecked candidates beyond the sampling budget; narrowing dates can
-find additional images. Outlines must fit within 1 by 1 degree. Invalid input
-returns 422 and unknown field IDs return 404. HLS pixels are **30 m**, including
-S30: display resizing adds no detail. This is dated satellite imagery, not a live
-or aerial photograph.
-
-Run offline imagery checks with:
-
-```sh
-python -m unittest tests.test_imagery tests.test_imagery_quality
-```
-
-HLS provides harmonized observations across sensors for comparisons through time;
-it does not sharpen small-field images. Native Sentinel-2 remains the finer option.
-Each PNG is a separate observation, not a merged or cloud-free composite.
-HLS RGB display uses a fixed 0–0.3 reflectance stretch and gamma 1.4, with
-fill pixels transparent. This makes the scientific raster visible as a photo;
-bright surfaces can saturate. After a rendering update, request fresh `imageUrl`
-links: previously copied URLs retain their old rendering settings.
-
-Sources: [NASA HLS access](https://hls.gsfc.nasa.gov/data-access-and-tools/),
-[Sentinel-2 Level-2A catalogue](https://planetarycomputer.microsoft.com/dataset/sentinel-2-l2a),
-[Planetary Computer public APIs](https://planetarycomputer.microsoft.com/docs/).
-
-## Field greenness
-
-`GET /fields/{field_id}/greenness?year=2025` returns how green a field was through
-one growing season, from Copernicus Sentinel-2 L2A at 10 m (Earth Search, no
-account); `POST /greenness` with `{"polygon": ..., "year": ...}` does the same for
-any outline. Each clear overpass (about every 2-5 days) gives the field's mean
-NDVI with its 10th/90th percentiles and the clear share of the field. A summary
-gives the peak, the latest value and the green-up date. Bare soil is about
-0.1-0.2 NDVI and a full canopy 0.6-0.9.
-
-The season is April 1 to November 15 (October 1 to May 15 south of the equator),
-up to today for the current year; `year` defaults to the most recent season.
-Cloud, shadow, snow and water pixels are removed, and an overpass counts when at
-least half of the field is clear. Only the pixels over the field are read from
-each cloud-optimized file, but a first request still reads 20-30 scenes and takes
-about 10 seconds; finished seasons are then cached, and the current season is
-refreshed every 6 hours. Collection 1 is used where available; seasons it lacks
-(2017, 2022) come from the original collection. Needs `rasterio`
-(in `requirements.txt`).
-
-## Field soil
-
-`GET /fields/{field_id}/soil` returns topsoil estimates for a field from ISRIC
-SoilGrids 2.0 (250 m, global, CC BY 4.0); `POST /fields/soil` with `{"ids": [...]}`
-answers up to 100 fields in request order (per-field `status`, like crop history),
-and `POST /soil` takes any outline. Values are averaged over every 250 m cell the
-outline touches:
-
-- `topsoil`: thickness-weighted 0-30 cm pH, clay/sand/silt (%), organic carbon and
-  nitrogen (g/kg), bulk density (g/cm3) and CEC (cmol(+)/kg); `depths` gives the
-  same for 0-5, 5-15 and 15-30 cm.
-- `derived`: USDA texture class, organic matter % (organic carbon x 1.724), USDA pH
-  class, and plant-available water in the top 30 cm (Saxton & Rawls 2006).
-
-These are machine-learning estimates, not a soil test, and are null over water,
-ice or built-up land. The maps are read as cloud-optimized GeoTIFFs rather than
-through the SoilGrids REST service, which allows only five requests a minute. Each
-of the 24 layers has a tile index (about 6 MB, 144 MB in total) that is downloaded
-once and kept in `SOIL_INDEX_DIR` (default: a `soilgrids-index` folder beside
-`FIELDS_DB`, else `data/soilgrids-index`). The first request after a fresh install
-downloads them (about 40 seconds); later fields take about 2 seconds, and repeats
-are cached.
-
-## Year-by-year climate indicators
-
-`POST /field-summary` also returns `yearly`. `yearly.years` has one row per year (crop heat units,
-growing-degree days, season and annual rain, ET0, water deficit and stress, frost-free days, heat, dry-spell
-and heavy-rain days); a value is `null` for a year without enough valid days. `yearly.percentiles` gives p10,
-p50 and p90 across the valid years. Use these to ask how often a field reaches what a crop needs.
-
-## Agro-weather (NASA POWER)
-
-```sh
-curl 'http://127.0.0.1:8000/fields/<field_id>/agro-weather?years=20'
-curl -X POST http://127.0.0.1:8000/agro-weather -H 'Content-Type: application/json' \
-  -d '{"polygon": {"type": "Polygon", "coordinates": [[[-79.159,44.349],[-79.150,44.349],[-79.150,44.355],[-79.159,44.355],[-79.159,44.349]]]}}'
-```
-
-Root-zone and surface soil wetness (latest 30 days ranked against earlier years, by calendar month and by
-growing season), FAO-56 Penman-Monteith ET0, and season radiation, wind and humidity, from NASA POWER at about
-50 km. No account. These are regional, modelled values; the latest days come from POWER's near-real-time
-stream and can read differently from the long record.
-
-## Crop calendar (GGCMI Phase 3)
-
-```sh
-curl 'http://127.0.0.1:8000/fields/<field_id>/crop-calendar?system=rainfed&crops=corn,soybeans,winter_wheat'
-```
-
-Usual planting and maturity dates for 18 crops on a 0.5 degree grid (NASA GISS and partners, CC BY 4.0), also
-at `POST /crop-calendar`. About 3 MB of files are downloaded from Zenodo on first use into
-`CROP_CALENDAR_DIR` (default `data/crop-calendar`). Dates are multi-year averages around 2000, and cells
-where a crop is not grown are filled in from other areas, so check them against local practice.
-
-## Vegetation history (NASA MODIS)
-
-```sh
-curl 'http://127.0.0.1:8000/fields/<field_id>/vegetation-history?years=5'
-```
-
-NDVI every 16 days at 250 m (MOD13Q1) for the last 1 to 10 years, with each year's peak, green-up and
-brown-down and the date ranges that usually have little green cover; plus yearly net primary production
-(MOD17A3HGF) and evapotranspiration (MOD16A3GF) since 2001. Also at `POST /vegetation-history`. Files are
-read as cloud-optimized images from Microsoft Planetary Computer with no account. The first request takes
-about 30 seconds for 5 years; repeats are cached for 12 hours.
-
-## Drought indicators (NASA GRACE and GRACE-FO)
-
-```sh
-curl 'http://127.0.0.1:8000/fields/<field_id>/drought-indicators?weeks=12&years=10'
-```
-
-Weekly groundwater, root-zone and surface soil moisture percentiles against 1948-2012, at 0.25 degrees, with
-the same time of year in earlier years. Also at `POST /drought-indicators`. Needs the Earthdata login used
-for SMAP. Weekly global files (about 3 MB each) are downloaded on first use into `GRACE_DIR` (default
-`data/grace`); after that any field answers at once. The newest week is usually about two months old.
-
-## Background North American acquisition
-
-Install acquisition dependencies with `pip install -r pipeline/requirements.txt`.
-Start or resume the detached worker:
-
-```sh
-python pipeline/north_america.py start
-python pipeline/north_america.py status
-python pipeline/north_america.py stop
-```
-
-The queue covers Canada, the United States and Mexico, beginning with Eastern
-Canada, the Canadian Prairies, and the US Great Lakes/Midwest. Remaining areas
-follow, including northern Canada, Alaska and Hawaii. Other North American
-countries/territories are outside this queue. These are predicted field units;
-completing the queue does not establish an exhaustive registry of farms.
-
-The worker imports small geographic tiles into the same database while the API
-continues serving already-loaded fields. New outlines are compressed; existing
-Ontario rows remain readable. Completed tiles are checkpointed, IDs deduplicated,
-and temporary downloads removed after import. Restarting retries incomplete or
-failed tiles. Source downloads retry three times before recording a tile error
-and continuing. `/field-coverage` exposes live counts and ingestion progress;
-`data/background/status.json` and `data/background/worker.log` contain local detail.
-A `completed_with_errors` status requires another run to retry failed areas.
-
-Defaults retain **12 GiB of free disk space** and pause at a **30 GiB database
-budget**. A `paused_disk` job requires freeing space or explicitly changing these
-limits before running `start` again. Acquisition progress is retained. Stop is
-graceful after the current download/batch. This is a local background process;
-it survives closing its launching terminal, but must be started again after a
-reboot. On macOS it prevents idle sleep while running; closing the laptop or
-powering it off can still interrupt work.
-
-### Importing on a separate API host
-
-Set `FIELDS_DB` to the persistent SQLite path and `FIELD_INGEST_DIR` to a persistent
-worker directory before starting the importer. The API's `FIELDS_DB` must refer
-to that same database (using its container mount path if containerized). Mount the
-whole data directory so SQLite WAL/SHM files are shared, and run the API and importer
-with compatible file ownership. The API serves new committed fields immediately.
-A Git clone alone contains the preview and source code, not the full dataset.
-
-On the current Linux host, persistent field data is stored under
-`/mnt/5tb_drive/spaceapps-2026/data/`, separate from the small system disk.
-The background service is `spaceapps-field-import.service` in the user's systemd
-manager. It uses a 50 GiB free-space reserve and a 250 GiB database budget.
-Check it with `systemctl --user status spaceapps-field-import.service`, and inspect
-live API ingestion status at `/field-coverage`.
-
-The host's user service definition is versioned at
-[`deploy/spaceapps-field-import.service`](deploy/spaceapps-field-import.service).
-Install it into `~/.config/systemd/user/`, then run `systemctl --user daemon-reload`
-and `systemctl --user enable --now spaceapps-field-import.service`. User lingering
-is enabled on the current host so the job survives SSH logout and starts after boot.
-The existing `spaceapps-data` Docker service uses port 8091 and mounts the persistent
-field directory at `/var/lib/spaceapps-fields`, with
-`FIELDS_DB=/var/lib/spaceapps-fields/fields.sqlite`. Both processes use UID/GID 1000
-for shared SQLite file access. Use systemd to start/stop the managed worker rather
-than starting a second worker manually.
-
-## Incremental HLS field seasons
-
-`GET /fields/{field_id}/season?start=2026-01-01&end=2026-11-14`
-starts acquisition and returns immediately. Poll the same request while `status`
-is `queued` or `running`. `POST /field-season` accepts `polygon`, `start`, `end`
-and optional `retry` for an explicit outline. Dates are inclusive UTC days.
-
-Python returns per-overpass NDVI mean and percentiles, valid sample count,
-coverage and cloud/snow/water fractions, plus real acquisition counters.
-It makes no crop, harvest or planting-date inference. Snow and water remain
-separate ground states; water pixels do not enter land NDVI. Fmask is read
-first; red and NIR are skipped below 20% candidate clear land support. Native
-30 m pixel centres and polygon holes are respected. Where at least four interior
-pixels remain after removing a one-pixel edge, statistics use those interior
-pixels; otherwise `interiorOnly` is false so consumers can disclose mixed edges.
-
-The service searches both HLS L30 and S30 through Microsoft Planetary Computer,
-selects one native tile covering the complete field, and shares persistent
-256-pixel raster blocks between nearby fields. Two jobs, four scene reads and
-eight band reads bound concurrency per process. Each job writes progress as
-observations finish; repeated polls do not resubmit it. Job results survive
-restarts, interrupted jobs can resume, and failed passes remain explicit.
-`retry=true` reprocesses a terminal acquisition using cached successful blocks.
-
-Cache storage defaults to `data/hls` (ignored by Git). Set `HLS_CACHE_DIR` to a
-persistent writable directory and `HLS_CACHE_MB` to adjust the default 2000 MB
-raster-block budget; pruning runs after jobs finish. No Earthdata login or new
-Python dependency is required. Acquisition requires outbound access to
-Planetary Computer and its public Azure raster assets. Current periods refresh
-after six hours; periods ending at least ten days ago remain cached. Late provider
-backfills for older periods require an explicit retry.
-
-Limits are explicit: one period of at most 366 inclusive days, 500 scenes and
-512 native pixels (15.36 km) per window dimension. Tile-spanning fields are
-reported as unsupported rather than silently clipped. Fields with no native
-pixel centres return zero measurements. Jobs are local disk/thread jobs, not a
-distributed queue; multiple replicas need their own cache or shared storage.
-
-Run acquisition checks with `.venv/bin/python -m unittest tests.test_hls_season`.
+# SpaceApps 2026 Data Service
+
+The data service is the only part of the system that talks to NASA and other
+public data providers. It finds farm field outlines, retrieves satellite,
+climate, soil and crop-map data for a field, and returns it as measured values
+with their source details. Its only consumer is the Java application backend;
+the frontend never calls it directly.
+
+## What it is responsible for
+
+- **Getting data.** Searching, downloading, streaming and caching data from NASA
+  and other providers, including Earthdata logins.
+- **Measuring a field.** Reducing images and grids to numbers for a field outline
+  (for example mean NDVI, soil texture over the outline, or the share of each crop
+  class), and standard indicators such as growing-degree days, frost dates and
+  reference evapotranspiration.
+- **Reporting the source.** Every response says which dataset answered, at what
+  resolution, for which dates and under which licence, plus known limitations.
+
+## What it is not responsible for
+
+- Recommendations, scoring or crop rotation planning (Java backend).
+- Interpreting observations, for example naming crop groups, inferring rotations
+  or choosing display quality for season charts (Java backend).
+- Anything shown to the farmer, or chat (Java backend and frontend).
+
+It never invents a missing value. A year or source with no data comes back empty
+or marked unavailable, with the reason.
+
+## Fields
+
+Field outlines come from **Fields of The World (Global, 2nd edition, 2025)**.
+These are predicted agricultural fields, not farms or ownership parcels. They
+are imported ahead of time into a spatial index covering Ontario, with
+background import extending to the rest of Canada, the United States and Mexico.
+
+- `GET /fields`: outlines in a map viewport, with size and shape facts (area,
+  perimeter, orientation, compactness)
+- `GET /fields/{id}`: area of one field
+- `GET /field-coverage`: which region is loaded and how far the import has got
+
+## Field data
+
+Most data is available two ways: by stored field (`/fields/{id}/...`) or for any
+drawn outline (`POST /...`).
+
+| Area | Routes | Source | Provides |
+|---|---|---|---|
+| Climate summary | `/field-summary`, `/fields/{id}/summary` | NASA Daymet (1 km, North America), falling back to NASA POWER (about 50 km, global); NASA SRTM 30 m via OpenTopoData | Climate indicators, water balance, frost dates, crop heat units, year-by-year values and percentiles, slope and low spots |
+| Agro-weather | `/agro-weather` | NASA POWER | Recent root-zone and surface soil wetness ranked against history, Penman-Monteith reference ET, radiation, wind, humidity |
+| Daily weather | `GET /daily-point` | NASA POWER | Raw daily values for a point |
+| Soil moisture map | `GET /soil-moisture` | NASA SMAP L4 (SPL4SMGP + SPL4SMLM) | 9 km soil moisture, wetness, temperature and water flux, as a map layer |
+| Drought | `/drought-indicators` | NASA GRACE/GRACE-FO drought indicators | Weekly groundwater and soil moisture percentiles compared with 1948-2012 |
+| Soil | `/soil`, `/fields/soil` | ISRIC SoilGrids 2.0 (250 m) | Topsoil pH, texture, organic carbon, nitrogen, bulk density, CEC; texture class, organic matter, available water |
+| Crop history | `/crop-history`, `/fields/crop-history` | AAFC Annual Crop Inventory (Canada), USDA Cropland Data Layer (US) | Share of the field in each crop class per year |
+| Crop calendar | `/crop-calendar` | GGCMI Phase 3 (Zenodo) | Usual planting and maturity dates for 18 crops |
+| Greenness | `/greenness` | Copernicus Sentinel-2 L2A via Earth Search (10 m) | NDVI per clear pass over one season, peak, latest value, green-up date |
+| Vegetation history | `/vegetation-history` | NASA MODIS (MOD13Q1, MOD17A3HGF, MOD16A3GF) via Planetary Computer | 16-day NDVI over up to 10 years, low-cover periods, yearly plant growth (NPP) and evapotranspiration |
+| Season measurements | `/fields/{id}/season`, `/field-season` | NASA HLS (Landsat + Sentinel-2, 30 m) via Planetary Computer | Per-pass NDVI with cloud, snow and water fractions, built in the background |
+| Imagery | `/imagery` | NASA HLS or Sentinel-2 via Planetary Computer | Links to field images that passed a cloud check over the field itself |
+
+`/health` and `/ready` report whether the service is running and whether its
+field data can be read.
+
+## How to read the data
+
+- **Satellite and model data describe an area, not a field.** Resolution ranges
+  from 10 m (Sentinel-2) to about 50 km (POWER). SMAP, GRACE and POWER describe
+  the district, not one field.
+- **Some values are modelled or estimated, not measured.** SMAP and GRACE combine
+  satellite data with land models; SoilGrids is a machine-learning estimate; crop
+  maps are image classifications and any one year can be wrong, especially at
+  field edges.
+- **Ground checks still matter.** A soil test, field walk, local weather station
+  and the farmer's own records should confirm anything a decision depends on.
+
+Full route details are in the OpenAPI docs at `/docs`. Dataset licences and
+citations are in [data/README.md](data/README.md).
+
+## AI Usage
+
+AI was used during this project for:
+
+ - Brainstorming and ideas
+ - Research
+ - Data interpretation
+ - Code generation
+ - Writing and editing
